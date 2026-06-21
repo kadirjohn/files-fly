@@ -20,7 +20,7 @@ const { query } = require('../services/database');
 const { getPreview } = require('../services/preview-service');
 const { deleteFile, fileExists } = require('../services/storage-service');
 const { getAllConfig, updateConfig, invalidateCache } = require('../services/config-service');
-const { banIP, unbanIP, listBannedIPs } = require('../services/ip-service');
+const { banIP, unbanIP, unbanIPByHash, listBannedIPs } = require('../services/ip-service');
 
 // =========================================================================
 // Admin Middleware Wrapper
@@ -266,7 +266,7 @@ addAdminRoute('POST', '/api/admin/ban-ip', async (req, res, params, body) => {
 });
 
 // =========================================================================
-// DELETE /api/admin/ban-ip/:ip — IP Yasak Kaldır
+// DELETE /api/admin/ban-ip/:ip — IP Yasak Kaldır (plaintext IP)
 // =========================================================================
 
 addAdminRoute('DELETE', '/api/admin/ban-ip/:ip', async (req, res, params, body) => {
@@ -281,6 +281,26 @@ addAdminRoute('DELETE', '/api/admin/ban-ip/:ip', async (req, res, params, body) 
     sendJSON(res, 200, { unbanned: true });
   } catch (err) {
     console.error('[Admin] Unban IP error:', err.message);
+    sendError(res, 500, 'Failed to unban IP');
+  }
+});
+
+// =========================================================================
+// DELETE /api/admin/ban-ip-hash/:hash — IP Yasak Kaldır (hash ile)
+// =========================================================================
+
+addAdminRoute('DELETE', '/api/admin/ban-ip-hash/:hash', async (req, res, params, body) => {
+  try {
+    const ipHash = decodeURIComponent(params.hash);
+    const removed = await unbanIPByHash(ipHash);
+
+    if (!removed) {
+      return sendError(res, 404, 'IP hash not found in ban list');
+    }
+
+    sendJSON(res, 200, { unbanned: true });
+  } catch (err) {
+    console.error('[Admin] Unban IP by hash error:', err.message);
     sendError(res, 500, 'Failed to unban IP');
   }
 });

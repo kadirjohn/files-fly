@@ -226,6 +226,13 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   const password = fields.password || null;
 
   // -----------------------------------------------------------------------
+  // AES-GCM Parola Koruması (Faz 4.3)
+  // -----------------------------------------------------------------------
+  const isEncrypted = !!password;
+  const encryptionIV = fields.encryption_iv || null;
+  const encryptionSalt = fields.encryption_salt || null;
+
+  // -----------------------------------------------------------------------
   // Validasyonlar
   // -----------------------------------------------------------------------
 
@@ -235,8 +242,10 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
     throw new Error(`File size exceeds maximum allowed size of ${sizeCheck.maxSizeMB} MB`);
   }
 
-  // MIME type kontrolü
-  const mimeType = file.contentType || getMimeType(file.filename);
+  // MIME type kontrolü (şifreli dosyalar için application/octet-stream olarak gelir,
+  // orijinal MIME type'ı fields'dan al)
+  const declaredMimeType = fields.mime_type || file.contentType;
+  const mimeType = declaredMimeType || getMimeType(file.filename);
   const mimeAllowed = await isMimeTypeAllowed(mimeType);
   if (!mimeAllowed) {
     throw new Error(`File type "${mimeType}" is not allowed`);
@@ -273,8 +282,9 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
 
   const result = await query(
     `INSERT INTO files (session_id, ip_hash, filename, file_size, mime_type,
-                        storage_path, direct_url, expire_at, is_encrypted)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        storage_path, direct_url, expire_at, is_encrypted,
+                        encryption_iv, encryption_salt)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       sessionId,
@@ -285,7 +295,9 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
       storagePath,
       directUrl,
       expireAt,
-      false, // Parola koruması Faz 4'te
+      isEncrypted,
+      encryptionIV,
+      encryptionSalt,
     ]
   );
 

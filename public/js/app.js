@@ -1,12 +1,13 @@
 /**
  * app.js — Files Fly Ana Sayfa JavaScript
- * 
+ *
  * Özellikler:
  * - Drag & drop + dosya seçme
  * - Dosya thumbnail önizleme
- * - Parola koruma opsiyonu
- * - XHR upload + progress (hız/ETA)
- * - Yükleme iptal
+ * - Parola koruma opsiyonu (AES-GCM — Faz 4.3)
+ * - Tek seferde upload (küçük dosyalar) + Chunked upload (büyük dosyalar)
+ * - Chunked: dosya bölme, sıralı fetch, progress, resume desteği
+ * - Yükleme iptal (AbortController)
  * - Başarılı: link kopyalama, QR kod
  * - Toast notification
  * - Retry mekanizması
@@ -70,11 +71,20 @@ const DOM = {
 // =========================================================================
 
 let selectedFile = null;
-let xhr = null;           // Aktif XHR (iptal için)
+let xhr = null;              // Aktif XHR (tek seferde upload için)
+let abortController = null;  // Aktif AbortController (chunked upload için)
 let uploadStartTime = 0;
 let lastLoaded = 0;
 let lastTime = 0;
 let currentStep = 'select';
+
+// Chunked upload state
+let chunkedMode = false;
+let fileId = null;
+let chunkSizeBytes = 5 * 1024 * 1024; // Varsayılan 5MB, config'den güncellenir
+let totalChunks = 0;
+let uploadedChunks = 0;
+let chunkBytesUploaded = 0;
 
 // =========================================================================
 // Adım Yönetimi
@@ -200,20 +210,69 @@ function formatTime(seconds) {
 }
 
 // =========================================================================
-// Yükleme
+// UUID Oluşturma (client-side, crypto.randomUUID)
+// =========================================================================
+
+function generateUUID() {
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback: manual UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// =========================================================================
+// Yükleme Başlatma
 // =========================================================================
 
 DOM.uploadBtn.addEventListener('click', startUpload);
 
-function startUpload() {
+async function startUpload() {
   if (!selectedFile) return;
 
   // Session cookie kontrolü — yoksa önce session oluştur
-  ensureSession().then(() => {
-    doUpload();
-  }).catch(err => {
-    showToast('Oturum oluşturulamadı. Lütfen sayfayı yenileyin.', 'error');
-  });
+  try {
+    await ensureSession();
+  } catch (err) {
+    showToast(t('sessionError'), 'error');
+    return;
+  }
+
+  // Parola koruması varsa önce şifrele
+  const password = DOM.passwordToggle.checked ? DOM.passwordInput.value : null;
+  let fileToUpload = selectedFile;
+  let encryptionIV = null;
+  let encryptionSalt = null;
+  let originalMimeType = selectedFile.type || 'application/octet-stream';
+
+  if (password && password.length > 0) {
+    try {
+      showToast(t('encrypting'), 'info');
+      const encrypted = await encryptFile(selectedFile, password);
+      fileToUpload = encrypted.ciphertext;
+      encryptionIV = encrypted.iv;
+      encryptionSalt = encrypted.salt;
+      originalMimeType = selectedFile.type || 'application/octet-stream';
+      showToast(t('encrypted'), 'success');
+    } catch (err) {
+      console.error('[Crypto] Encryption error:', err);
+      showToast(t('encryptError'), 'error');
+      return;
+    }
+  }
+
+  // Dosya boyutuna göre tek seferde veya chunked upload
+  if (fileToUpload.size <= chunkSizeBytes) {
+    chunkedMode = false;
+    doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType);
+  } else {
+    chunkedMode = true;
+    doChunkedUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType);
+  }
 }
 
 async function ensureSession() {
@@ -225,7 +284,11 @@ async function ensureSession() {
   if (!resp.ok) throw new Error('Session creation failed');
 }
 
-function doUpload() {
+// =========================================================================
+// Tek Seferde Upload (Küçük Dosyalar — XHR)
+// =========================================================================
+
+function doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType) {
   showStep('uploading');
 
   // Uploading step bilgileri
@@ -241,11 +304,14 @@ function doUpload() {
 
   // FormData hazırla
   const formData = new FormData();
-  formData.append('file', selectedFile);
+  formData.append('file', fileToUpload, selectedFile.name);
   formData.append('expire', DOM.expireSelect.value);
 
-  if (DOM.passwordToggle.checked && DOM.passwordInput.value) {
-    formData.append('password', DOM.passwordInput.value);
+  if (password) {
+    formData.append('password', password);
+    formData.append('encryption_iv', encryptionIV);
+    formData.append('encryption_salt', encryptionSalt);
+    formData.append('mime_type', originalMimeType);
   }
 
   // XHR ile upload (progress takibi için)
@@ -258,33 +324,35 @@ function doUpload() {
   });
 
   xhr.addEventListener('load', () => {
+    const status = xhr.status;
+    const responseText = xhr.responseText;
     xhr = null;
-    if (xhr.status >= 200 && xhr.status < 300) {
+    if (status >= 200 && status < 300) {
       try {
-        const result = JSON.parse(xhr.responseText);
+        const result = JSON.parse(responseText);
         handleUploadSuccess(result);
       } catch {
-        handleUploadError('Sunucu yanıtı işlenemedi.');
+        handleUploadError(t('serverResponseError'));
       }
     } else {
       try {
-        const err = JSON.parse(xhr.responseText);
-        handleUploadError(err.error || `Hata: ${xhr.status}`);
+        const err = JSON.parse(responseText);
+        handleUploadError(err.error || `Hata: ${status}`);
       } catch {
-        handleUploadError(`Sunucu hatası: ${xhr.status}`);
+        handleUploadError(`Sunucu hatası: ${status}`);
       }
     }
   });
 
   xhr.addEventListener('error', () => {
     xhr = null;
-    handleUploadError('Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.');
+    handleUploadError(t('connectionError'));
   });
 
   xhr.addEventListener('abort', () => {
     xhr = null;
     showStep('select');
-    showToast('Yükleme iptal edildi.', 'info');
+    showToast(t('uploadCancelled'), 'info');
   });
 
   xhr.open('POST', '/api/upload');
@@ -294,7 +362,190 @@ function doUpload() {
   xhr.send(formData);
 }
 
-// Progress güncelleme
+// =========================================================================
+// Chunked Upload (Büyük Dosyalar — Fetch API)
+// =========================================================================
+
+async function doChunkedUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType) {
+  showStep('uploading');
+
+  // Uploading step bilgileri
+  DOM.uploadingIcon.textContent = getFileIcon(selectedFile.type, selectedFile.name);
+  DOM.uploadingName.textContent = selectedFile.name;
+  DOM.uploadingSize.textContent = formatSize(selectedFile.size);
+
+  // Progress sıfırla
+  DOM.progressFill.style.width = '0%';
+  DOM.progressPercent.textContent = '%0';
+  DOM.progressSpeed.textContent = '';
+  DOM.progressEta.textContent = '';
+
+  // Chunk state
+  fileId = generateUUID();
+  totalChunks = Math.ceil(fileToUpload.size / chunkSizeBytes);
+  uploadedChunks = 0;
+  chunkBytesUploaded = 0;
+  abortController = new AbortController();
+  uploadStartTime = Date.now();
+  lastLoaded = 0;
+  lastTime = uploadStartTime;
+
+  // -----------------------------------------------------------------------
+  // Resume kontrolü: daha önce başlanmış upload var mı?
+  // -----------------------------------------------------------------------
+  try {
+    const statusResp = await fetch(`/api/upload/chunk/${fileId}/status`, {
+      signal: abortController.signal,
+    });
+    if (statusResp.ok) {
+      const status = await statusResp.json();
+      if (status.exists && status.received_chunks > 0) {
+        // Kaldığı yerden devam et
+        uploadedChunks = status.received_chunks;
+        // Alınmış chunk'ların toplam boyutunu hesapla
+        const lastChunkIndex = uploadedChunks - 1;
+        const fullChunkSize = chunkSizeBytes;
+        chunkBytesUploaded = lastChunkIndex < totalChunks - 1
+          ? uploadedChunks * fullChunkSize
+          : Math.min(uploadedChunks * fullChunkSize, fileToUpload.size);
+        updateChunkProgress(chunkBytesUploaded, fileToUpload.size);
+        showToast(`${uploadedChunks}/${totalChunks} ${t('chunkResume')}`, 'info');
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    // Status alınamazsa sıfırdan başla
+  }
+
+  // -----------------------------------------------------------------------
+  // Chunk'ları sırayla gönder
+  // -----------------------------------------------------------------------
+  for (let i = uploadedChunks; i < totalChunks; i++) {
+    if (abortController.signal.aborted) break;
+
+    const start = i * chunkSizeBytes;
+    const end = Math.min(start + chunkSizeBytes, fileToUpload.size);
+    const chunk = fileToUpload.slice(start, end);
+
+    const success = await uploadChunk(i, chunk, password, encryptionIV, encryptionSalt, originalMimeType);
+    if (!success) return; // Hata oluştu, handleUploadError zaten çağrıldı
+
+    uploadedChunks++;
+    chunkBytesUploaded += chunk.size;
+    updateChunkProgress(chunkBytesUploaded, fileToUpload.size);
+  }
+
+  if (abortController.signal.aborted) return;
+
+  // Tüm chunk'lar gönderildi — son chunk'ın response'u zaten complete:true döndü
+  // handleUploadSuccess son chunk'ta çağrıldı
+}
+
+/**
+ * Tek bir chunk'ı fetch ile gönderir.
+ * @param {number} chunkIndex
+ * @param {Blob} chunk
+ * @param {string|null} password
+ * @param {string|null} encryptionIV
+ * @param {string|null} encryptionSalt
+ * @param {string|null} originalMimeType
+ * @returns {Promise<boolean>} - Başarılıysa true
+ */
+async function uploadChunk(chunkIndex, chunk, password, encryptionIV, encryptionSalt, originalMimeType) {
+  const formData = new FormData();
+  formData.append('chunk', chunk, `chunk_${chunkIndex}`);
+  formData.append('chunk_index', String(chunkIndex));
+  formData.append('total_chunks', String(totalChunks));
+  formData.append('file_id', fileId);
+  formData.append('filename', selectedFile.name);
+  formData.append('expire', DOM.expireSelect.value);
+
+  if (password) {
+    formData.append('password', password);
+    formData.append('encryption_iv', encryptionIV);
+    formData.append('encryption_salt', encryptionSalt);
+    formData.append('mime_type', originalMimeType);
+  }
+
+  let retries = 0;
+  const maxRetries = 3;
+
+  while (retries <= maxRetries) {
+    try {
+      const resp = await fetch('/api/upload/chunk', {
+        method: 'POST',
+        body: formData,
+        signal: abortController.signal,
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        handleUploadError(errData.error || `Chunk yükleme hatası: ${resp.status}`);
+        return false;
+      }
+
+      const result = await resp.json();
+
+      if (result.complete) {
+        // Son chunk — upload tamamlandı
+        abortController = null;
+        handleUploadSuccess(result);
+      }
+
+      return true;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return false;
+      }
+
+      retries++;
+      if (retries > maxRetries) {
+        handleUploadError(`${t('chunkFailed')} (${chunkIndex + 1}/${totalChunks})`);
+        return false;
+      }
+
+      // Retry öncesi kısa bekle
+      await new Promise(r => setTimeout(r, 1000 * retries));
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Chunked upload için progress güncelleme.
+ */
+function updateChunkProgress(loaded, total) {
+  const percent = Math.round((loaded / total) * 100);
+  DOM.progressFill.style.width = `${percent}%`;
+  DOM.progressPercent.textContent = `%${percent}`;
+
+  // Hız hesapla
+  const now = Date.now();
+  const elapsed = (now - lastTime) / 1000;
+  if (elapsed > 0.5) {
+    const bytesPerSec = (loaded - lastLoaded) / elapsed;
+    DOM.progressSpeed.textContent = `${formatSize(bytesPerSec)}/s`;
+    lastLoaded = loaded;
+    lastTime = now;
+  }
+
+  // ETA hesapla
+  if (loaded > 0) {
+    const totalElapsed = (now - uploadStartTime) / 1000;
+    const bytesPerSecAvg = loaded / totalElapsed;
+    const remaining = total - loaded;
+    if (bytesPerSecAvg > 0) {
+      const eta = remaining / bytesPerSecAvg;
+      DOM.progressEta.textContent = `${formatTime(eta)} kaldı`;
+    }
+  }
+}
+
+// =========================================================================
+// Progress Güncelleme (Tek Seferde Upload)
+// =========================================================================
+
 function updateProgress(loaded, total) {
   const percent = Math.round((loaded / total) * 100);
   DOM.progressFill.style.width = `${percent}%`;
@@ -322,9 +573,17 @@ function updateProgress(loaded, total) {
   }
 }
 
+// =========================================================================
 // İptal
+// =========================================================================
+
 DOM.cancelUploadBtn.addEventListener('click', () => {
-  if (xhr) {
+  if (chunkedMode && abortController) {
+    abortController.abort();
+    abortController = null;
+    showStep('select');
+    showToast(t('chunkCancelled'), 'info');
+  } else if (xhr) {
     xhr.abort();
   }
 });
@@ -340,13 +599,17 @@ function handleUploadSuccess(result) {
   DOM.directLinkUrl.textContent = result.direct_url;
   DOM.previewLinkUrl.textContent = result.preview_url;
 
-  // Süre bilgisi
-  const expireDate = new Date(result.expire_at);
-  const hoursLeft = Math.round((expireDate - new Date()) / (1000 * 60 * 60));
-  DOM.expiryTime.textContent = `${hoursLeft} saat`;
+  // Canlı countdown başlat (Faz 5.6)
+  startLiveCountdown(result.expire_at);
+
+  // İndirme sayacı (Faz 5.6)
+  startDownloadCounter(result.id);
 
   // QR Kod
   generateQR(result.direct_url);
+
+  // E-posta paylaşım linki (Faz 5.5)
+  updateEmailShareLink(result.direct_url, result.filename);
 
   // Parola bilgisi
   if (result.is_encrypted) {
@@ -355,6 +618,9 @@ function handleUploadSuccess(result) {
     DOM.passwordInfo.classList.add('hidden');
   }
 
+  // i18n güncelle
+  applyTranslations();
+
   // Link kopyalama butonları
   document.querySelectorAll('[data-copy]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -362,8 +628,8 @@ function handleUploadSuccess(result) {
       const targetEl = document.getElementById(targetId);
       if (targetEl) {
         copyToClipboard(targetEl.textContent);
-        btn.textContent = '✅ Kopyalandı!';
-        setTimeout(() => { btn.textContent = '📋 Kopyala'; }, 2000);
+        btn.textContent = t('copied');
+        setTimeout(() => { btn.textContent = t('copyBtn'); }, 2000);
       }
     });
   });
@@ -410,12 +676,20 @@ DOM.newUploadBtn.addEventListener('click', resetToSelect);
 
 function resetToSelect() {
   selectedFile = null;
+  fileId = null;
+  chunkedMode = false;
+  totalChunks = 0;
+  uploadedChunks = 0;
+  chunkBytesUploaded = 0;
   DOM.fileInput.value = '';
   DOM.filePreview.classList.add('hidden');
   DOM.uploadBtn.disabled = true;
   DOM.passwordToggle.checked = false;
   DOM.passwordField.classList.add('hidden');
   DOM.passwordInput.value = '';
+  // Clear intervals
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+  if (downloadPollInterval) { clearInterval(downloadPollInterval); downloadPollInterval = null; }
   showStep('select');
 }
 
@@ -426,7 +700,7 @@ function resetToSelect() {
 function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(() => {
-      showToast('Link kopyalandı!', 'success');
+      showToast(t('copySuccess'), 'success');
     }).catch(() => {
       fallbackCopy(text);
     });
@@ -444,9 +718,9 @@ function fallbackCopy(text) {
   textarea.select();
   try {
     document.execCommand('copy');
-    showToast('Link kopyalandı!', 'success');
+    showToast(t('copySuccess'), 'success');
   } catch {
-    showToast('Kopyalanamadı. Lütfen manuel kopyalayın.', 'error');
+    showToast(t('copyFailed'), 'error');
   }
   document.body.removeChild(textarea);
 }
@@ -458,9 +732,11 @@ function fallbackCopy(text) {
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
 
   const icons = { success: '✅', error: '❌', info: 'ℹ️' };
-  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span> ${message}`;
+  toast.innerHTML = `<span aria-hidden="true">${icons[type] || 'ℹ️'}</span> ${message}`;
 
   DOM.toastContainer.appendChild(toast);
 
@@ -487,22 +763,630 @@ function getCookie(name) {
 }
 
 // =========================================================================
+// Web Crypto API — AES-GCM Parola Koruması (Faz 4.3)
+// =========================================================================
+
+/**
+ * Dosyayı AES-GCM ile şifreler.
+ * PBKDF2 ile paroladan key türetir, AES-GCM ile şifreler.
+ *
+ * @param {File|Blob} file - Şifrelenecek dosya
+ * @param {string} password - Parola
+ * @returns {Promise<{ciphertext: Blob, iv: string, salt: string}>}
+ */
+async function encryptFile(file, password) {
+  // 1. Salt oluştur (16 byte random)
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  // 2. PBKDF2 ile key türet (100,000 iterasyon)
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+
+  const aesKey = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  // 3. IV oluştur (12 byte — AES-GCM standardı)
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  // 4. Dosyayı ArrayBuffer olarak oku
+  const fileBuffer = await file.arrayBuffer();
+
+  // 5. AES-GCM ile şifrele
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    aesKey,
+    fileBuffer
+  );
+
+  // 6. Base64 encode (salt, iv) ve ciphertext'i Blob yap
+  return {
+    ciphertext: new Blob([ciphertext], { type: 'application/octet-stream' }),
+    iv: bufferToBase64(iv),
+    salt: bufferToBase64(salt),
+  };
+}
+
+/**
+ * Şifreli dosyayı AES-GCM ile çözer.
+ *
+ * @param {ArrayBuffer} ciphertext - Şifreli veri
+ * @param {string} ivBase64 - Base64 IV
+ * @param {string} saltBase64 - Base64 salt
+ * @param {string} password - Parola
+ * @returns {Promise<ArrayBuffer>} - Çözülmüş dosya içeriği
+ */
+async function decryptFile(ciphertext, ivBase64, saltBase64, password) {
+  // 1. Base64 decode
+  const iv = base64ToBuffer(ivBase64);
+  const salt = base64ToBuffer(saltBase64);
+
+  // 2. PBKDF2 ile key türet (aynı parametrelerle)
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+
+  const aesKey = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+
+  // 3. AES-GCM ile deşifrele
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv },
+      aesKey,
+      ciphertext
+    );
+    return plaintext;
+  } catch (err) {
+    throw new Error('Şifre çözme başarısız. Parola yanlış olabilir.');
+  }
+}
+
+/**
+ * Uint8Array'i Base64 string'e çevirir.
+ */
+function bufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Base64 string'i Uint8Array'e çevirir.
+ */
+function base64ToBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// =========================================================================
+// Parola Çözme (Faz 4.4 — Decrypt UI)
+// =========================================================================
+
+/**
+ * Sayfa yüklendiğinde URL'de file ID varsa ve is_encrypted=true ise
+ * decrypt adımını gösterir.
+ */
+async function checkDecryptMode() {
+  // URL pattern: /files/:id veya /files/:id/dl
+  const path = window.location.pathname;
+  const fileMatch = path.match(/^\/api\/files\/([a-f0-9-]+)(\/dl)?$/);
+  if (!fileMatch) return;
+
+  const fileId = fileMatch[1];
+  const isDownload = !!fileMatch[2];
+
+  try {
+    const resp = await fetch(`/api/files/${fileId}`);
+    if (!resp.ok) return;
+
+    const metadata = await resp.json();
+
+    if (metadata.is_encrypted) {
+      showDecryptUI(fileId, metadata, isDownload);
+    }
+  } catch {
+    // Metadata alınamazsa normal akışa devam et
+  }
+}
+
+/**
+ * Parola çözme UI'ını gösterir.
+ */
+function showDecryptUI(fileId, metadata, isDownload) {
+  // Ana container'ı gizle, decrypt container'ı göster
+  const mainContainer = document.querySelector('.container');
+  if (mainContainer) mainContainer.style.display = 'none';
+
+  // Decrypt container'ı oluştur
+  const decryptContainer = document.createElement('main');
+  decryptContainer.className = 'container';
+  decryptContainer.id = 'decrypt-container';
+  decryptContainer.innerHTML = `
+    <section class="step active">
+      <div class="glass-card">
+        <div class="success-icon" aria-hidden="true">🔒</div>
+        <h2 class="text-center mb-1">${t('decryptTitle')}</h2>
+        <p class="text-center text-muted text-sm mb-2">
+          <strong>${escapeHtml(metadata.filename)}</strong> (${formatSize(metadata.file_size)})<br>
+          ${t('decryptDesc')}
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="decrypt-password-input">${t('decryptPasswordLabel')}</label>
+          <input type="password" id="decrypt-password-input" class="form-input"
+                 placeholder="${t('decryptPasswordPlaceholder')}" autocomplete="new-password">
+        </div>
+
+        <div id="decrypt-error" class="hidden text-error text-sm text-center mb-1"></div>
+
+        <div class="text-center">
+          <button id="decrypt-btn" class="btn btn-primary">
+            ${t('decryptBtn')}
+          </button>
+        </div>
+
+        <div id="decrypt-progress" class="hidden mt-2">
+          <div class="progress-bar">
+            <div class="progress-fill" id="decrypt-progress-fill"></div>
+          </div>
+          <p class="text-center text-muted text-sm mt-1" id="decrypt-progress-text">${t('decryptProgressDecrypt')}</p>
+        </div>
+      </div>
+    </section>
+  `;
+
+  document.body.appendChild(decryptContainer);
+
+  // Event listeners
+  const decryptBtn = document.getElementById('decrypt-btn');
+  const passwordInput = document.getElementById('decrypt-password-input');
+  const decryptError = document.getElementById('decrypt-error');
+  const decryptProgress = document.getElementById('decrypt-progress');
+  const decryptProgressFill = document.getElementById('decrypt-progress-fill');
+  const decryptProgressText = document.getElementById('decrypt-progress-text');
+
+  passwordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') decryptBtn.click();
+  });
+
+  decryptBtn.addEventListener('click', async () => {
+    const password = passwordInput.value;
+    if (!password) {
+      decryptError.textContent = t('decryptErrorEmpty');
+      decryptError.classList.remove('hidden');
+      return;
+    }
+
+    decryptBtn.disabled = true;
+    decryptError.classList.add('hidden');
+    decryptProgress.classList.remove('hidden');
+    decryptProgressFill.style.width = '10%';
+    decryptProgressText.textContent = t('decryptProgressDownload');
+
+    try {
+      // Şifreli dosyayı indir
+      const downloadUrl = `/api/files/${fileId}/dl`;
+      decryptProgressFill.style.width = '30%';
+      decryptProgressText.textContent = t('decryptProgressDownload');
+
+      const resp = await fetch(downloadUrl);
+      if (!resp.ok) {
+        throw new Error(t('decryptErrorDownload'));
+      }
+
+      const ciphertext = await resp.arrayBuffer();
+      decryptProgressFill.style.width = '60%';
+      decryptProgressText.textContent = t('decryptProgressDecrypt');
+
+      // Deşifrele
+      const plaintext = await decryptFile(
+        ciphertext,
+        metadata.encryption_iv,
+        metadata.encryption_salt,
+        password
+      );
+
+      decryptProgressFill.style.width = '100%';
+      decryptProgressText.textContent = t('decryptProgressReady');
+
+      // Blob oluştur ve indir
+      const blob = new Blob([plaintext], { type: metadata.mime_type || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = metadata.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Başarılı mesajı
+      decryptProgressText.textContent = t('decryptSuccess');
+      decryptBtn.textContent = t('decryptDownloaded');
+      setTimeout(() => {
+        decryptBtn.textContent = t('decryptBtn');
+        decryptBtn.disabled = false;
+        decryptProgress.classList.add('hidden');
+      }, 3000);
+
+    } catch (err) {
+      console.error('[Decrypt] Error:', err);
+      decryptError.textContent = err.message || t('decryptErrorWrong');
+      decryptError.classList.remove('hidden');
+      decryptProgress.classList.add('hidden');
+      decryptBtn.disabled = false;
+    }
+  });
+
+  // Focus password input
+  setTimeout(() => passwordInput.focus(), 100);
+}
+
+// =========================================================================
 // Config Yükleme (sayfa açılışında)
 // =========================================================================
 
 async function loadConfig() {
   try {
-    // Maksimum dosya boyutunu config'den al
+    // Maksimum dosya boyutunu ve chunk boyutunu config'den al
     const resp = await fetch('/api/admin/config');
     if (resp.ok) {
       const data = await resp.json();
-      if (data.config && data.config.max_file_size_mb) {
-        DOM.maxSizeText.textContent = `Maksimum dosya boyutu: ${data.config.max_file_size_mb} MB`;
+      if (data.config) {
+        if (data.config.max_file_size_mb) {
+          DOM.maxSizeText.textContent = `Maksimum dosya boyutu: ${data.config.max_file_size_mb} MB`;
+        }
+        if (data.config.chunk_size_mb) {
+          chunkSizeBytes = parseInt(data.config.chunk_size_mb) * 1024 * 1024;
+        }
       }
     }
   } catch {
     // Config yüklenemezse varsayılan değerle devam et
   }
+}
+
+// =========================================================================
+// HTML Escape
+// =========================================================================
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+// =========================================================================
+// Dark/Light Mode Toggle (Faz 5.2)
+// =========================================================================
+
+function initThemeToggle() {
+  const toggleBtn = document.getElementById('theme-toggle');
+  if (!toggleBtn) return;
+
+  // localStorage'dan tercihi oku
+  const saved = localStorage.getItem('filesfly_theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    toggleBtn.textContent = '☀️';
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    if (current === 'light') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('filesfly_theme', 'dark');
+      toggleBtn.textContent = '🌓';
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('filesfly_theme', 'light');
+      toggleBtn.textContent = '☀️';
+    }
+  });
+}
+
+// =========================================================================
+// i18n (Faz 5.3) — Türkçe + İngilizce
+// =========================================================================
+
+const I18N = {
+  tr: {
+    skipLink: 'Ana içeriğe atla',
+    myFiles: '📂 Dosyalarım',
+    pageTitle: 'Dosya Paylaş',
+    pageDesc: 'Dosyanızı yükleyin, linki paylaşın. Belirlediğiniz süre dolunca otomatik silinir.',
+    expireLabel: '⏱️ Saklama Süresi',
+    expire1h: '1 Saat',
+    expire6h: '6 Saat',
+    expire12h: '12 Saat',
+    expire24h: '24 Saat (1 Gün)',
+    expire48h: '48 Saat (2 Gün)',
+    dropZoneTitle: 'Dosyanızı sürükleyin veya seçin',
+    passwordToggle: '🔒 Parola koruması ekle (opsiyonel)',
+    passwordPlaceholder: 'Parola girin...',
+    uploadBtn: '🚀 Dosyayı Yükle',
+    uploadSuccess: 'Yükleme Başarılı!',
+    expiryPrefix: 'Dosyanız',
+    expirySuffix: 'içinde silinecektir.',
+    downloadCount: 'İndirilme:',
+    directLinkLabel: '🔗 Doğrudan İndirme Linki [En Hızlı]',
+    previewLinkLabel: '🔗 Önizleme Sayfası',
+    copyBtn: '📋 Kopyala',
+    qrText: 'Mobil cihazdan taratarak dosyaya erişebilirsiniz.',
+    emailShare: '📧 E-posta ile Paylaş',
+    passwordInfo: '⚠️ Bu dosya parola korumalıdır. İndirme linkinin sonundaki <code>#...</code> kısmı şifre hash\'idir. Linki paylaşırken bu kısmı da iletmeniz gerekir.',
+    newUploadBtn: '➕ Yeni Dosya Yükle',
+    uploadFailed: 'Yükleme Başarısız',
+    retryBtn: '🔄 Tekrar Dene',
+    copied: '✅ Kopyalandı!',
+    cancelUpload: '❌ Yüklemeyi İptal Et',
+    uploading: '⏳ Yükleniyor...',
+    encrypting: 'Dosya şifreleniyor...',
+    encrypted: 'Dosya şifrelendi, yükleniyor...',
+    sessionError: 'Oturum oluşturulamadı. Lütfen sayfayı yenileyin.',
+    encryptError: 'Şifreleme hatası. Lütfen tekrar deneyin.',
+    connectionError: 'Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.',
+    serverResponseError: 'Sunucu yanıtı işlenemedi.',
+    uploadCancelled: 'Yükleme iptal edildi.',
+    chunkResume: 'parça zaten yüklenmiş. Kaldığınız yerden devam ediliyor.',
+    chunkCancelled: 'Yükleme iptal edildi. Kalan parçalar sunucuda saklandı, sayfayı yenilemeden devam edebilirsiniz.',
+    chunkFailed: 'Parça yüklenemedi. Lütfen tekrar deneyin.',
+    decryptTitle: 'Parola Korumalı Dosya',
+    decryptDesc: 'Bu dosya parola korumalıdır. İndirmek için parolayı girin.',
+    decryptPasswordLabel: '🔑 Parola',
+    decryptPasswordPlaceholder: 'Parolayı girin...',
+    decryptBtn: '🔓 Dosyayı Çöz ve İndir',
+    decryptErrorEmpty: 'Lütfen parola girin.',
+    decryptErrorWrong: 'Şifre çözme başarısız. Parola yanlış olabilir.',
+    decryptErrorDownload: 'Dosya indirilemedi. Süresi dolmuş olabilir.',
+    decryptProgressDownload: 'Şifreli dosya indiriliyor...',
+    decryptProgressDecrypt: 'Şifre çözülüyor...',
+    decryptProgressReady: '✅ Dosya hazır!',
+    decryptSuccess: '✅ Dosya başarıyla çözüldü ve indirildi!',
+    decryptDownloaded: '✅ İndirildi',
+    copySuccess: 'Link kopyalandı!',
+    copyFailed: 'Kopyalanamadı. Lütfen manuel kopyalayın.',
+  },
+  en: {
+    skipLink: 'Skip to main content',
+    myFiles: '📂 My Files',
+    pageTitle: 'Share a File',
+    pageDesc: 'Upload your file, share the link. It will be automatically deleted after the set time.',
+    expireLabel: '⏱️ Retention Time',
+    expire1h: '1 Hour',
+    expire6h: '6 Hours',
+    expire12h: '12 Hours',
+    expire24h: '24 Hours (1 Day)',
+    expire48h: '48 Hours (2 Days)',
+    dropZoneTitle: 'Drag & drop your file or click to select',
+    passwordToggle: '🔒 Add password protection (optional)',
+    passwordPlaceholder: 'Enter password...',
+    uploadBtn: '🚀 Upload File',
+    uploadSuccess: 'Upload Successful!',
+    expiryPrefix: 'Your file will be deleted in',
+    expirySuffix: '',
+    downloadCount: 'Downloads:',
+    directLinkLabel: '🔗 Direct Download Link [Fastest]',
+    previewLinkLabel: '🔗 Preview Page',
+    copyBtn: '📋 Copy',
+    qrText: 'Scan with your mobile device to access the file.',
+    emailShare: '📧 Share via Email',
+    passwordInfo: '⚠️ This file is password protected. The <code>#...</code> part at the end of the download link is the password hash. You must share this part too.',
+    newUploadBtn: '➕ Upload New File',
+    uploadFailed: 'Upload Failed',
+    retryBtn: '🔄 Retry',
+    copied: '✅ Copied!',
+    cancelUpload: '❌ Cancel Upload',
+    uploading: '⏳ Uploading...',
+    encrypting: 'Encrypting file...',
+    encrypted: 'File encrypted, uploading...',
+    sessionError: 'Could not create session. Please reload the page.',
+    encryptError: 'Encryption error. Please try again.',
+    connectionError: 'Connection error. Please check your internet connection.',
+    serverResponseError: 'Could not process server response.',
+    uploadCancelled: 'Upload cancelled.',
+    chunkResume: 'chunks already uploaded. Resuming from where you left off.',
+    chunkCancelled: 'Upload cancelled. Remaining chunks are saved on the server, you can resume without refreshing.',
+    chunkFailed: 'Chunk upload failed. Please try again.',
+    decryptTitle: 'Password Protected File',
+    decryptDesc: 'This file is password protected. Enter the password to download.',
+    decryptPasswordLabel: '🔑 Password',
+    decryptPasswordPlaceholder: 'Enter password...',
+    decryptBtn: '🔓 Decrypt & Download',
+    decryptErrorEmpty: 'Please enter a password.',
+    decryptErrorWrong: 'Decryption failed. The password may be incorrect.',
+    decryptErrorDownload: 'Could not download file. It may have expired.',
+    decryptProgressDownload: 'Downloading encrypted file...',
+    decryptProgressDecrypt: 'Decrypting...',
+    decryptProgressReady: '✅ File ready!',
+    decryptSuccess: '✅ File successfully decrypted and downloaded!',
+    decryptDownloaded: '✅ Downloaded',
+    copySuccess: 'Link copied!',
+    copyFailed: 'Could not copy. Please copy manually.',
+  },
+};
+
+let currentLang = localStorage.getItem('filesfly_lang') || 'tr';
+
+function t(key) {
+  return I18N[currentLang]?.[key] || I18N.tr[key] || key;
+}
+
+function applyTranslations() {
+  // data-i18n attribute'ları
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    const text = t(key);
+    if (text) el.textContent = text;
+  });
+
+  // data-i18n-placeholder
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.dataset.i18nPlaceholder;
+    const text = t(key);
+    if (text) el.placeholder = text;
+  });
+
+  // Lang switcher butonları
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === currentLang);
+  });
+}
+
+function initLangSwitcher() {
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentLang = btn.dataset.lang;
+      localStorage.setItem('filesfly_lang', currentLang);
+      applyTranslations();
+      // Update dynamic elements
+      updateDynamicTranslations();
+    });
+  });
+}
+
+function updateDynamicTranslations() {
+  // Max size text
+  if (DOM.maxSizeText) {
+    const mb = DOM.maxSizeText.textContent.match(/\d+/);
+    if (mb) {
+      DOM.maxSizeText.textContent = currentLang === 'tr'
+        ? `Maksimum dosya boyutu: ${mb[0]} MB`
+        : `Maximum file size: ${mb[0]} MB`;
+    }
+  }
+
+  // Uploading step
+  if (currentStep === 'uploading') {
+    const cancelBtn = document.getElementById('cancel-upload-btn');
+    if (cancelBtn) cancelBtn.textContent = t('cancelUpload');
+  }
+
+  // Success step copy buttons
+  document.querySelectorAll('[data-copy]').forEach(btn => {
+    if (btn.textContent === '✅ Kopyalandı!' || btn.textContent === '✅ Copied!') {
+      btn.textContent = t('copied');
+    } else {
+      btn.textContent = t('copyBtn');
+    }
+  });
+}
+
+// =========================================================================
+// E-posta ile Paylaş (Faz 5.5)
+// =========================================================================
+
+function updateEmailShareLink(directUrl, filename) {
+  const emailLink = document.getElementById('email-share-link');
+  if (!emailLink) return;
+
+  const subject = encodeURIComponent(currentLang === 'tr'
+    ? `Dosya paylaşımı: ${filename}`
+    : `File shared: ${filename}`);
+  const body = encodeURIComponent(currentLang === 'tr'
+    ? `Merhaba,\n\n${filename} dosyasını seninle paylaşıyorum:\n${directUrl}\n\nDosya belirli bir süre sonra otomatik silinecektir.\n\nFiles Fly ile gönderildi.`
+    : `Hi,\n\nI'm sharing "${filename}" with you:\n${directUrl}\n\nThe file will be automatically deleted after a set time.\n\nSent via Files Fly.`);
+
+  emailLink.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+// =========================================================================
+// Canlı Countdown + İndirme Sayacı (Faz 5.6)
+// =========================================================================
+
+let countdownInterval = null;
+let downloadPollInterval = null;
+
+function startLiveCountdown(expireAt) {
+  // Eski interval'ı temizle
+  if (countdownInterval) clearInterval(countdownInterval);
+
+  const expiryEl = document.getElementById('expiry-time');
+  if (!expiryEl) return;
+
+  function update() {
+    const now = new Date();
+    const expire = new Date(expireAt);
+    const diffMs = expire - now;
+
+    if (diffMs <= 0) {
+      expiryEl.textContent = currentLang === 'tr' ? 'Süresi doldu' : 'Expired';
+      expiryEl.style.color = 'var(--color-error)';
+      if (countdownInterval) clearInterval(countdownInterval);
+      return;
+    }
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+    if (hours > 0) {
+      expiryEl.textContent = `${hours}s ${minutes}dk ${seconds}sn`;
+    } else if (minutes > 0) {
+      expiryEl.textContent = `${minutes}dk ${seconds}sn`;
+    } else {
+      expiryEl.textContent = `${seconds}sn`;
+    }
+  }
+
+  update();
+  countdownInterval = setInterval(update, 1000);
+}
+
+function startDownloadCounter(fileId) {
+  // Eski interval'ı temizle
+  if (downloadPollInterval) clearInterval(downloadPollInterval);
+
+  const countInfo = document.getElementById('download-count-info');
+  const countValue = document.getElementById('download-count-value');
+  if (!countInfo || !countValue) return;
+
+  countInfo.classList.remove('hidden');
+
+  async function poll() {
+    try {
+      const resp = await fetch(`/api/files/${fileId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        countValue.textContent = data.download_count || 0;
+      }
+    } catch {
+      // ignore poll errors
+    }
+  }
+
+  poll();
+  downloadPollInterval = setInterval(poll, 10000); // Her 10 saniyede bir
 }
 
 // =========================================================================
@@ -516,4 +1400,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof lucide !== 'undefined' && lucide.createIcons) {
     lucide.createIcons();
   }
+
+  // Theme toggle
+  initThemeToggle();
+
+  // i18n
+  applyTranslations();
+  initLangSwitcher();
+
+  // Parola korumalı dosya decrypt modu kontrolü
+  checkDecryptMode();
 });

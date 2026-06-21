@@ -68,6 +68,164 @@
 }
 
 /* -------------------------------------------------------------------------
+   Light Theme
+   ------------------------------------------------------------------------- */
+[data-theme="light"] {
+    --color-bg: #f8f9fa;
+    --color-surface: rgba(255, 255, 255, 0.85);
+    --color-surface-hover: rgba(255, 255, 255, 0.95);
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-border-active: rgba(245, 158, 11, 0.6);
+
+    --color-text-main: #1a1a2e;
+    --color-text-muted: #6b7280;
+    --color-text-dark: #9ca3af;
+
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-md: 0 8px 24px rgba(0,0,0,0.1);
+    --shadow-lg: 0 16px 40px rgba(0,0,0,0.12);
+    --shadow-glow: 0 0 24px rgba(245,158,11,0.15);
+    --shadow-glow-upload: 0 0 16px rgba(59,130,246,0.2);
+    --shadow-glow-success: 0 0 16px rgba(16,185,129,0.2);
+
+    --grad-glow: radial-gradient(circle, rgba(245,158,11,0.06) 0%, rgba(251,191,36,0.02) 50%, transparent 100%);
+}
+
+[data-theme="light"] .glass-card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+[data-theme="light"] .form-input,
+[data-theme="light"] .form-select {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .form-input:focus,
+[data-theme="light"] .form-select:focus {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .drop-zone:hover,
+[data-theme="light"] .drop-zone.drag-over {
+    background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+[data-theme="light"] .file-preview {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .link-box {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .qr-container {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .progress-bar {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .admin-table tr:hover td {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .preview-content pre {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .btn-primary {
+    color: #fff;
+}
+
+[data-theme="light"] .btn-ghost:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* -------------------------------------------------------------------------
+   Theme Toggle Button
+   ------------------------------------------------------------------------- */
+.theme-toggle {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.6rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+}
+.theme-toggle:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border-active);
+}
+
+/* -------------------------------------------------------------------------
+   Language Switcher
+   ------------------------------------------------------------------------- */
+.lang-switcher {
+    display: flex;
+    gap: 0.25rem;
+}
+.lang-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+}
+.lang-btn:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+.lang-btn.active {
+    color: var(--color-primary);
+    border-color: var(--color-border-active);
+    background: rgba(var(--color-primary-rgb), 0.1);
+}
+
+/* -------------------------------------------------------------------------
+   Skip Link (a11y)
+   ------------------------------------------------------------------------- */
+.skip-link {
+    position: absolute;
+    top: -100px;
+    left: 1rem;
+    z-index: 9999;
+    padding: 0.75rem 1.5rem;
+    background: var(--color-primary);
+    color: #000;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: top 0.2s ease;
+}
+.skip-link:focus {
+    top: 1rem;
+}
+
+/* -------------------------------------------------------------------------
+   Email Share Button
+   ------------------------------------------------------------------------- */
+.email-share-box {
+    margin-top: 0.75rem;
+    text-align: center;
+}
+
+/* -------------------------------------------------------------------------
+   Live Countdown (success page)
+   ------------------------------------------------------------------------- */
+.live-countdown {
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+/* -------------------------------------------------------------------------
    Reset & Base
    ------------------------------------------------------------------------- */
 *, *::before, *::after {
@@ -481,6 +639,11 @@ h3 { font-size: 1.25rem; }
     margin-bottom: 1rem;
 }
 
+.error-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
 .success-message {
     text-align: center;
     font-size: 1.125rem;
@@ -851,12 +1014,26 @@ h3 { font-size: 1.25rem; }
 .mb-1 { margin-bottom: 0.5rem; }
 .mb-2 { margin-bottom: 1rem; }
 .mb-3 { margin-bottom: 1.5rem; }
+.ml-2 { margin-left: 1rem; }
 
 .flex { display: flex; }
 .flex-center { display: flex; align-items: center; justify-content: center; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-1-min { flex: 1; min-width: 200px; }
+.flex-1-min-150 { flex: 1; min-width: 150px; }
 .gap-1 { gap: 0.5rem; }
 .gap-2 { gap: 1rem; }
+
+.w-140 { width: 140px; }
+.w-160 { width: 160px; }
+.overflow-x-auto { overflow-x: auto; }
+
+.btn-full { width: 100%; }
+
+.login-card { max-width: 400px; margin: 3rem auto; }
+
+.empty-icon { font-size: 3rem; margin-bottom: 1rem; }
 
 .hidden { display: none !important; }
 

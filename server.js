@@ -68,7 +68,7 @@ function setSecurityHeaders(res) {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' https://unpkg.com https://cdnjs.cloudflare.com; " +
-    "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " +
+    "style-src 'self' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: blob:; " +
     "connect-src 'self'; " +
@@ -324,13 +324,36 @@ const server = http.createServer(async (req, res) => {
   req.pathname = urlPath;
 
   // -----------------------------------------------------------------------
-  // 1. API Route'ları dene
+  // Middleware Zinciri: Rate Limiter → Session → Router
+  // -----------------------------------------------------------------------
+
+  // 1. Rate Limiter — IP bazlı hız sınırlama + ban kontrolü
+  try {
+    const { rateLimitMiddleware } = require('./middleware/rate-limiter');
+    const rateLimited = await rateLimitMiddleware(req, res);
+    if (!rateLimited) return; // 403 veya 429 gönderildi
+  } catch (err) {
+    console.error('[Server] Rate limiter error:', err.message);
+    // Rate limiter hatasında fail-open (erişime izin ver)
+  }
+
+  // 2. Session — Cookie-based kullanıcı oturumu
+  try {
+    const { sessionMiddleware } = require('./middleware/session');
+    await sessionMiddleware(req, res);
+  } catch (err) {
+    console.error('[Server] Session middleware error:', err.message);
+    // Session hatasında devam et (sessionId null olabilir)
+  }
+
+  // -----------------------------------------------------------------------
+  // 3. API Route'ları dene
   // -----------------------------------------------------------------------
   const routeHandled = await handleRoute(req, res, urlPath);
   if (routeHandled) return;
 
   // -----------------------------------------------------------------------
-  // 2. Statik dosya sunmayı dene
+  // 4. Statik dosya sunmayı dene
   // -----------------------------------------------------------------------
   // GET istekleri için public/ dizininden statik dosya ara
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -352,7 +375,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // -----------------------------------------------------------------------
-  // 3. 404 — Hiçbir şey eşleşmedi
+  // 5. 404 — Hiçbir şey eşleşmedi
   // -----------------------------------------------------------------------
   sendError(res, 404, 'Not found');
 });

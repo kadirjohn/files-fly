@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0A0A0A">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Admin Paneli — Files Fly</title>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <a href="/" class="app-logo">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="logoGrad3" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#f59e0b"/>
+                    <stop offset="100%" stop-color="#fbbf24"/>
+                </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="url(#logoGrad3)"/>
+            <path d="M10 8h4l4 6v4l-4 6h-4l4-6v-4l-4-6z" fill="#0A0A0A"/>
+            <path d="M18 8h4l-4 16h-4l4-16z" fill="#0A0A0A" opacity="0.6"/>
+        </svg>
+        <span>Files Fly</span>
+    </a>
+    <nav class="app-nav">
+        <span id="admin-username" class="text-sm text-muted"></span>
+        <button id="logout-btn" class="btn btn-ghost btn-sm hidden">🚪 Çıkış</button>
+    </nav>
+</header>
+
+<main class="admin-layout">
+
+    <!-- ==================================================================
+         Login Formu (giriş yapılmamışsa)
+         ================================================================== -->
+    <section id="login-section">
+        <div class="glass-card login-card">
+            <h1 class="text-center mb-2">🔒 Admin Girişi</h1>
+            <div class="form-group">
+                <label class="form-label" for="login-username">Kullanıcı Adı</label>
+                <input type="text" id="login-username" class="form-input" placeholder="admin" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="login-password">Parola</label>
+                <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <div id="login-error" class="text-error text-sm mb-2 hidden"></div>
+            <button id="login-btn" class="btn btn-primary btn-full">🔑 Giriş Yap</button>
+        </div>
+    </section>
+
+    <!-- ==================================================================
+         Admin Paneli (giriş yapıldıktan sonra)
+         ================================================================== -->
+    <section id="admin-section" class="hidden">
+
+        <!-- Tab Navigation -->
+        <nav class="admin-tabs">
+            <button class="admin-tab active" data-tab="dashboard">📊 Dashboard</button>
+            <button class="admin-tab" data-tab="files">📁 Dosyalar</button>
+            <button class="admin-tab" data-tab="ips">🚫 IP Yönetimi</button>
+            <button class="admin-tab" data-tab="settings">⚙️ Ayarlar</button>
+        </nav>
+
+        <!-- ==============================================================
+             SEKME 1: DASHBOARD
+             ============================================================== -->
+        <div class="admin-panel active" id="panel-dashboard">
+            <div class="stats-grid" id="stats-grid">
+                <!-- JS tarafından doldurulacak -->
+            </div>
+            <div class="glass-card">
+                <h3 class="mb-2">📈 Son 7 Gün</h3>
+                <div id="daily-stats">
+                    <p class="text-muted text-sm">Yükleniyor...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==============================================================
+             SEKME 2: DOSYALAR
+             ============================================================== -->
+        <div class="admin-panel" id="panel-files">
+            <!-- Filtreler -->
+            <div class="flex gap-1 mb-2 flex-wrap">
+                <input type="text" id="files-search" class="form-input flex-1-min" placeholder="🔍 Dosya adı ara...">
+                <select id="files-mime-filter" class="form-select w-160">
+                    <option value="">Tüm Türler</option>
+                    <option value="image/*">🖼️ Resim</option>
+                    <option value="video/*">🎬 Video</option>
+                    <option value="audio/*">🎵 Ses</option>
+                    <option value="text/*">📝 Metin</option>
+                    <option value="application/pdf">📕 PDF</option>
+                    <option value="application/zip">📦 Arşiv</option>
+                </select>
+                <button id="files-search-btn" class="btn btn-secondary btn-sm">Ara</button>
+            </div>
+
+            <!-- Dosya Tablosu -->
+            <div class="glass-card overflow-x-auto">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Dosya</th>
+                            <th>IP Hash</th>
+                            <th>Boyut</th>
+                            <th>Tür</th>
+                            <th>⏱️ Kalan</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="files-table-body">
+                        <tr><td colspan="6" class="text-center text-muted">Yükleniyor...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Sayfalama -->
+            <div class="flex-center gap-1 mt-2" id="files-pagination">
+                <button id="files-prev-btn" class="btn btn-ghost btn-sm" disabled>◀</button>
+                <span id="files-page-info" class="text-sm text-muted"></span>
+                <button id="files-next-btn" class="btn btn-ghost btn-sm" disabled>▶</button>
+            </div>
+
+            <!-- Önizleme Paneli -->
+            <div id="preview-panel" class="preview-panel hidden">
+                <div class="flex-between mb-2">
+                    <h3 id="preview-title">👁️ Dosya Önizleme</h3>
+                    <button id="preview-close-btn" class="btn btn-ghost btn-icon">✕</button>
+                </div>
+                <div id="preview-content" class="preview-content"></div>
+                <div class="flex gap-1 mt-2">
+                    <a id="preview-download-btn" class="btn btn-primary btn-sm" href="#" target="_blank">📥 İndir</a>
+                    <button id="preview-delete-btn" class="btn btn-danger btn-sm">🗑️ Sil</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==============================================================
+             SEKME 3: IP YÖNETİMİ
+             ============================================================== -->
+        <div class="admin-panel" id="panel-ips">
+            <!-- IP Ban Formu -->
+            <div class="glass-card mb-2">
+                <h3 class="mb-2">🚫 IP Yasakla</h3>
+                <div class="flex gap-1 flex-wrap">
+                    <input type="text" id="ban-ip-input" class="form-input flex-1-min" placeholder="IP adresi (örn: 192.168.1.100)">
+                    <input type="text" id="ban-reason-input" class="form-input flex-1-min-150" placeholder="Sebep (opsiyonel)">
+                    <select id="ban-duration-select" class="form-select w-140">
+                        <option value="">Kalıcı</option>
+                        <option value="1">1 Saat</option>
+                        <option value="24">24 Saat</option>
+                        <option value="72">3 Gün</option>
+                        <option value="168">7 Gün</option>
+                        <option value="720">30 Gün</option>
+                    </select>
+                    <button id="ban-ip-btn" class="btn btn-danger btn-sm">🚫 Yasakla</button>
+                </div>
+                <div id="ban-error" class="text-error text-sm mt-1 hidden"></div>
+            </div>
+
+            <!-- Yasaklı IP Listesi -->
+            <div class="glass-card">
+                <h3 class="mb-2">Yasaklı IP'ler</h3>
+                <div id="banned-ips-list">
+                    <p class="text-muted text-sm">Yükleniyor...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==============================================================
+             SEKME 4: AYARLAR
+             ============================================================== -->
+        <div class="admin-panel" id="panel-settings">
+            <div class="glass-card">
+                <h3 class="mb-2">⚙️ Sistem Ayarları</h3>
+                <div id="settings-form">
+                    <!-- JS tarafından doldurulacak -->
+                    <p class="text-muted text-sm">Yükleniyor...</p>
+                </div>
+                <div class="mt-3">
+                    <button id="settings-save-btn" class="btn btn-primary">💾 Ayarları Kaydet</button>
+                    <span id="settings-saved" class="text-success text-sm ml-2 hidden">✅ Kaydedildi!</span>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+</main>
+
+<script src="/js/admin.js"></script>
+
+</body>
+</html>

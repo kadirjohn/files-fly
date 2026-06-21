@@ -180,7 +180,7 @@ async function banIP(ip, reason, bannedBy, durationHours = null) {
 }
 
 /**
- * IP ban'ını kaldırır.
+ * IP ban'ını kaldırır (plaintext IP ile).
  * @param {string} ip - Plaintext IP adresi
  * @returns {Promise<boolean>}
  */
@@ -191,6 +191,22 @@ async function unbanIP(ip) {
   const result = await query(
     `DELETE FROM banned_ips WHERE ip_hash = $1`,
     [hashedIP]
+  );
+
+  return result.rowCount > 0;
+}
+
+/**
+ * IP ban'ını hash ile kaldırır (admin panel için).
+ * @param {string} ipHash - SHA-256 HMAC hash'lenmiş IP
+ * @returns {Promise<boolean>}
+ */
+async function unbanIPByHash(ipHash) {
+  const { query } = require('./database');
+
+  const result = await query(
+    `DELETE FROM banned_ips WHERE ip_hash = $1`,
+    [ipHash]
   );
 
   return result.rowCount > 0;
@@ -253,6 +269,7 @@ module.exports = {
   isIPBanned,
   banIP,
   unbanIP,
+  unbanIPByHash,
   listBannedIPs,
   cleanupExpiredBans,
 };
