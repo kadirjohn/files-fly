@@ -12,6 +12,7 @@ RUN npm install --production && npm cache clean --force
 
 # Uygulama kodlarını kopyala
 COPY server.js ./
+COPY seed.js ./
 COPY middleware/ ./middleware/
 COPY services/ ./services/
 COPY routes/ ./routes/

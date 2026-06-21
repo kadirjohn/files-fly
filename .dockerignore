@@ -10,3 +10,4 @@ preview.png
 .env.*
 *.md
 .DS_Store
+uploads/
