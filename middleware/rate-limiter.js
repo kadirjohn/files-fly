@@ -1,23 +1,23 @@
 /**
  * rate-limiter.js — IP-based Sliding Window Rate Limiter Middleware
- * 
+ *
  * Strateji: In-memory Map ile sliding window.
- * banned_ips PostgreSQL tablosundan kontrol edilir (kalıcı).
- * 
+ * IP adresleri hash'lenerek kullanılır (privacy).
+ * banned_ips PostgreSQL tablosundan hash'li IP ile kontrol edilir (kalıcı, TTL destekli).
+ *
  * Config'den okunan değerler:
  *   - rate_limit_requests (varsayılan: 10)
  *   - rate_limit_window_minutes (varsayılan: 60)
- * 
+ *
  * Akış:
- *   1. IP adresini al
- *   2. banned_ips tablosunda IP var mı? → VAR: 403 Forbidden
- *   3. In-memory Map'te IP'nin son pencere istek sayısına bak
+ *   1. IP adresini hash'le
+ *   2. banned_ips tablosunda hash'li IP var mı? → VAR: 403 Forbidden
+ *   3. In-memory Map'te hash'li IP'nin son pencere istek sayısına bak
  *   4. Limit aşıldı mı? → EVET: 429 Too Many Requests + Retry-After header
  *   5. Limit aşılmadı → sayacı artır, next() çağır
  */
 
-const { query } = require('../services/database');
-const { getClientIP } = require('./session');
+const { getHashedClientIP, isIPBanned } = require('../services/ip-service');
 
 // =========================================================================
 // In-Memory Rate Limit Store
@@ -56,45 +56,23 @@ async function loadConfig() {
 }
 
 // =========================================================================
-// Banned IP Kontrolü (PG)
-// =========================================================================
-
-/**
- * IP'nin banned_ips tablosunda olup olmadığını kontrol eder.
- * @param {string} ip
- * @returns {Promise<boolean>} - Yasaklıysa true
- */
-async function isIPBanned(ip) {
-  try {
-    const result = await query(
-      `SELECT 1 FROM banned_ips WHERE ip_address = $1`,
-      [ip]
-    );
-    return result.rows.length > 0;
-  } catch (err) {
-    console.error('[RateLimiter] Error checking banned IP:', err.message);
-    return false; // Hata durumunda yasaklı değil varsay (fail-open)
-  }
-}
-
-// =========================================================================
 // Rate Limit Middleware
 // =========================================================================
 
 /**
  * Gelen isteği rate limit kontrolünden geçirir.
- * 
+ *
  * @param {http.IncomingMessage} req
  * @param {http.ServerResponse} res
  * @returns {Promise<boolean>} - İstek kabul edildiyse true, engellendiyse false
  */
 async function rateLimitMiddleware(req, res) {
-  const ip = getClientIP(req);
+  const ipHash = getHashedClientIP(req);
 
   // -----------------------------------------------------------------------
-  // 1. Banned IP kontrolü (PG)
+  // 1. Banned IP kontrolü (PG, hash'li)
   // -----------------------------------------------------------------------
-  const banned = await isIPBanned(ip);
+  const banned = await isIPBanned(ipHash);
   if (banned) {
     res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ error: 'Access denied. Your IP address has been banned.' }));
@@ -102,17 +80,17 @@ async function rateLimitMiddleware(req, res) {
   }
 
   // -----------------------------------------------------------------------
-  // 2. Sliding window kontrolü (in-memory)
+  // 2. Sliding window kontrolü (in-memory, hash'li IP ile)
   // -----------------------------------------------------------------------
   const now = Date.now();
   const windowMs = windowMinutes * 60 * 1000;
 
-  let record = rateLimitMap.get(ip);
+  let record = rateLimitMap.get(ipHash);
 
   if (!record || (now - record.windowStart) > windowMs) {
     // Yeni pencere başlat
     record = { count: 1, windowStart: now };
-    rateLimitMap.set(ip, record);
+    rateLimitMap.set(ipHash, record);
     return true;
   }
 
@@ -148,9 +126,9 @@ setInterval(() => {
   const now = Date.now();
   const windowMs = windowMinutes * 60 * 1000;
 
-  for (const [ip, record] of rateLimitMap.entries()) {
+  for (const [ipHash, record] of rateLimitMap.entries()) {
     if ((now - record.windowStart) > windowMs) {
-      rateLimitMap.delete(ip);
+      rateLimitMap.delete(ipHash);
     }
   }
 }, 5 * 60 * 1000);
@@ -159,4 +137,4 @@ setInterval(() => {
 // Export
 // =========================================================================
 
-module.exports = { rateLimitMiddleware, loadConfig, isIPBanned };
+module.exports = { rateLimitMiddleware, loadConfig };

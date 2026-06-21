@@ -1,9 +1,10 @@
 /**
  * session.js — Cookie-based Kullanıcı Oturumu Middleware
- * 
+ *
  * Her ziyaretçiye UUID session ID atar, HttpOnly/Secure/SameSite cookie ile saklar.
  * Session'lar PostgreSQL `sessions` tablosunda tutulur.
- * 
+ * IP adresleri SHA-256 HMAC ile hash'lenerek saklanır (privacy).
+ *
  * Middleware olarak: gelen istekte session cookie'sini okur, yoksa yeni session oluşturur.
  * Route handler olarak: POST /api/session, GET /api/session/files endpoint'leri.
  */
@@ -11,6 +12,7 @@
 const crypto = require('crypto');
 const { query } = require('../services/database');
 const { addRoute, sendJSON, sendError } = require('../server');
+const { getClientIP, getHashedClientIP } = require('../services/ip-service');
 
 // =========================================================================
 // Yapılandırma
@@ -122,14 +124,14 @@ function setSessionCookie(res, sessionId) {
  */
 async function createSession(req) {
   const id = crypto.randomUUID();
-  const ipAddress = getClientIP(req);
+  const ipHash = getHashedClientIP(req);
   const userAgent = req.headers['user-agent'] || null;
 
   const result = await query(
-    `INSERT INTO sessions (id, ip_address, user_agent)
+    `INSERT INTO sessions (id, ip_hash, user_agent)
      VALUES ($1, $2, $3)
-     RETURNING id, ip_address, user_agent, created_at, last_seen`,
-    [id, ipAddress, userAgent]
+     RETURNING id, ip_hash, user_agent, created_at, last_seen`,
+    [id, ipHash, userAgent]
   );
 
   return result.rows[0];
@@ -142,7 +144,7 @@ async function createSession(req) {
  */
 async function getSession(sessionId) {
   const result = await query(
-    `SELECT id, ip_address, user_agent, created_at, last_seen
+    `SELECT id, ip_hash, user_agent, created_at, last_seen
      FROM sessions WHERE id = $1`,
     [sessionId]
   );
@@ -158,28 +160,6 @@ async function updateSessionLastSeen(sessionId) {
     `UPDATE sessions SET last_seen = NOW() WHERE id = $1`,
     [sessionId]
   );
-}
-
-// =========================================================================
-// Yardımcılar
-// =========================================================================
-
-/**
- * İstekten gerçek IP adresini alır.
- * Proxy arkasında çalışıyorsa X-Forwarded-For header'ına bakar.
- * @param {http.IncomingMessage} req
- * @returns {string}
- */
-function getClientIP(req) {
-  // X-Forwarded-For (proxy arkası)
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    // İlk IP gerçek istemci IP'sidir
-    return forwarded.split(',')[0].trim();
-  }
-
-  // Direkt bağlantı
-  return req.socket.remoteAddress || '127.0.0.1';
 }
 
 /**
@@ -256,4 +236,4 @@ addRoute('GET', '/api/session/files', async (req, res, params, body) => {
 // Export
 // =========================================================================
 
-module.exports = { sessionMiddleware, getClientIP, getCookie, setSessionCookie };
+module.exports = { sessionMiddleware, getCookie, setSessionCookie };

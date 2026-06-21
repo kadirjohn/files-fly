@@ -1,11 +1,326 @@
 /**
- * routes/admin.js — Admin Route'ları (Placeholder)
+ * routes/admin.js — Admin Route'ları
  * 
- * Faz 3'te implemente edilecek.
- * Şimdilik server.js'in require('./routes/admin') çağrısını karşılamak için boş.
+ * Tüm admin endpoint'leri:
+ * - POST /api/admin/login          (auth.js'de)
+ * - GET  /api/admin/stats          Dashboard istatistikleri
+ * - GET  /api/admin/files          Dosya listesi (sayfalama, arama, filtre)
+ * - GET  /api/admin/files/:id/preview  Dosya önizleme
+ * - DELETE /api/admin/files/:id    Dosya silme
+ * - GET  /api/admin/banned-ips     Yasaklı IP listesi
+ * - POST /api/admin/ban-ip         IP yasakla
+ * - DELETE /api/admin/ban-ip/:ip   IP yasak kaldır
+ * - GET  /api/admin/config         Config listesi
+ * - PUT  /api/admin/config         Config güncelleme
  */
 
-// Faz 3'te doldurulacak
-console.log('[Routes] Admin routes placeholder loaded (Faz 3).');
+const { addRoute, sendJSON, sendError } = require('../server');
+const { adminAuthMiddleware } = require('../middleware/auth');
+const { query } = require('../services/database');
+const { getPreview } = require('../services/preview-service');
+const { deleteFile, fileExists } = require('../services/storage-service');
+const { getAllConfig, updateConfig, invalidateCache } = require('../services/config-service');
+const { banIP, unbanIP, listBannedIPs } = require('../services/ip-service');
 
-module.exports = {};
+// =========================================================================
+// Admin Middleware Wrapper
+// =========================================================================
+
+/**
+ * Admin route'ları için auth kontrolü ekleyen wrapper.
+ * addRoute ile aynı imza, ama handler'dan önce adminAuthMiddleware çalışır.
+ */
+function addAdminRoute(method, pattern, handler) {
+  addRoute(method, pattern, async (req, res, params, body) => {
+    const authed = await adminAuthMiddleware(req, res);
+    if (!authed) return; // Auth middleware zaten error response gönderdi
+    await handler(req, res, params, body);
+  });
+}
+
+// =========================================================================
+// GET /api/admin/stats — Dashboard İstatistikleri
+// =========================================================================
+
+addAdminRoute('GET', '/api/admin/stats', async (req, res, params, body) => {
+  try {
+    // Toplam dosya sayısı
+    const totalResult = await query(`SELECT COUNT(*) as count FROM files`);
+    const totalFiles = parseInt(totalResult.rows[0].count);
+
+    // Aktif dosya sayısı (süresi dolmamış)
+    const activeResult = await query(
+      `SELECT COUNT(*) as count FROM files WHERE expire_at > NOW()`
+    );
+    const activeFiles = parseInt(activeResult.rows[0].count);
+
+    // Toplam boyut
+    const sizeResult = await query(
+      `SELECT COALESCE(SUM(file_size), 0) as total FROM files WHERE expire_at > NOW()`
+    );
+    const totalSize = parseInt(sizeResult.rows[0].total);
+
+    // Bugünkü yüklemeler
+    const todayResult = await query(
+      `SELECT COUNT(*) as count FROM files WHERE created_at >= CURRENT_DATE`
+    );
+    const todayUploads = parseInt(todayResult.rows[0].count);
+
+    // Benzersiz session sayısı (son 7 gün)
+    const sessionsResult = await query(
+      `SELECT COUNT(DISTINCT session_id) as count FROM files WHERE created_at >= NOW() - INTERVAL '7 days'`
+    );
+    const uniqueSessions = parseInt(sessionsResult.rows[0].count);
+
+    // Son 7 gün yükleme istatistiği
+    const dailyResult = await query(
+      `SELECT DATE(created_at) as day, COUNT(*) as count
+       FROM files
+       WHERE created_at >= NOW() - INTERVAL '7 days'
+       GROUP BY DATE(created_at)
+       ORDER BY day DESC`
+    );
+
+    sendJSON(res, 200, {
+      total_files: totalFiles,
+      active_files: activeFiles,
+      total_size_bytes: totalSize,
+      today_uploads: todayUploads,
+      unique_sessions_7d: uniqueSessions,
+      daily_stats: dailyResult.rows,
+    });
+  } catch (err) {
+    console.error('[Admin] Stats error:', err.message);
+    sendError(res, 500, 'Failed to load statistics');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/files — Dosya Listesi
+// =========================================================================
+
+addAdminRoute('GET', '/api/admin/files', async (req, res, params, body) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = (page - 1) * limit;
+    const search = req.query.search || '';
+    const mimeType = req.query.mime_type || '';
+    const ipHash = req.query.ip_hash || '';
+
+    // WHERE clause oluştur
+    const conditions = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (search) {
+      conditions.push(`filename ILIKE $${paramIndex}`);
+      values.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (mimeType) {
+      if (mimeType.endsWith('/*')) {
+        const prefix = mimeType.replace('/*', '');
+        conditions.push(`mime_type LIKE $${paramIndex}`);
+        values.push(`${prefix}/%`);
+      } else {
+        conditions.push(`mime_type = $${paramIndex}`);
+        values.push(mimeType);
+      }
+      paramIndex++;
+    }
+
+    if (ipHash) {
+      conditions.push(`ip_hash = $${paramIndex}`);
+      values.push(ipHash);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.length > 0
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    // Toplam sayı
+    const countResult = await query(
+      `SELECT COUNT(*) as total FROM files ${whereClause}`,
+      values
+    );
+    const total = parseInt(countResult.rows[0].total);
+
+    // Dosyaları getir
+    const filesResult = await query(
+      `SELECT id, session_id, ip_hash, filename, file_size, mime_type,
+              direct_url, expire_at, is_encrypted, created_at, download_count
+       FROM files ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, limit, offset]
+    );
+
+    sendJSON(res, 200, {
+      files: filesResult.rows,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error('[Admin] Files list error:', err.message);
+    sendError(res, 500, 'Failed to load files');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/files/:id/preview — Dosya Önizleme
+// =========================================================================
+
+addAdminRoute('GET', '/api/admin/files/:id/preview', async (req, res, params, body) => {
+  try {
+    const preview = await getPreview(params.id);
+    sendJSON(res, 200, preview);
+  } catch (err) {
+    console.error('[Admin] Preview error:', err.message);
+    sendError(res, 500, 'Failed to generate preview');
+  }
+});
+
+// =========================================================================
+// DELETE /api/admin/files/:id — Dosya Silme
+// =========================================================================
+
+addAdminRoute('DELETE', '/api/admin/files/:id', async (req, res, params, body) => {
+  try {
+    const fileId = params.id;
+
+    // Metadata'yı al
+    const result = await query(
+      `SELECT id, storage_path, filename FROM files WHERE id = $1`,
+      [fileId]
+    );
+
+    if (result.rows.length === 0) {
+      return sendError(res, 404, 'File not found');
+    }
+
+    const file = result.rows[0];
+
+    // Diskten sil
+    if (file.storage_path) {
+      try {
+        await deleteFile(file.storage_path);
+      } catch (err) {
+        console.error(`[Admin] Error deleting file from disk: ${file.storage_path}`, err.message);
+      }
+    }
+
+    // PG'den sil
+    await query(`DELETE FROM files WHERE id = $1`, [fileId]);
+
+    sendJSON(res, 200, { deleted: true, id: fileId, filename: file.filename });
+  } catch (err) {
+    console.error('[Admin] Delete error:', err.message);
+    sendError(res, 500, 'Failed to delete file');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/banned-ips — Yasaklı IP Listesi
+// =========================================================================
+
+addAdminRoute('GET', '/api/admin/banned-ips', async (req, res, params, body) => {
+  try {
+    const ips = await listBannedIPs();
+    sendJSON(res, 200, { ips });
+  } catch (err) {
+    console.error('[Admin] Banned IPs error:', err.message);
+    sendError(res, 500, 'Failed to load banned IPs');
+  }
+});
+
+// =========================================================================
+// POST /api/admin/ban-ip — IP Yasakla
+// =========================================================================
+
+addAdminRoute('POST', '/api/admin/ban-ip', async (req, res, params, body) => {
+  if (!body || !body.ip_address) {
+    return sendError(res, 400, 'ip_address is required');
+  }
+
+  try {
+    const reason = body.reason || 'Manual ban';
+    const durationHours = body.duration_hours ? parseInt(body.duration_hours) : null;
+    const bannedBy = req.adminUser.username;
+
+    const result = await banIP(body.ip_address, reason, bannedBy, durationHours);
+
+    sendJSON(res, 200, {
+      banned: true,
+      ip_hash: result.ip_hash,
+      reason,
+      expires_at: result.expires_at,
+    });
+  } catch (err) {
+    console.error('[Admin] Ban IP error:', err.message);
+    sendError(res, 500, 'Failed to ban IP');
+  }
+});
+
+// =========================================================================
+// DELETE /api/admin/ban-ip/:ip — IP Yasak Kaldır
+// =========================================================================
+
+addAdminRoute('DELETE', '/api/admin/ban-ip/:ip', async (req, res, params, body) => {
+  try {
+    const ip = decodeURIComponent(params.ip);
+    const removed = await unbanIP(ip);
+
+    if (!removed) {
+      return sendError(res, 404, 'IP not found in ban list');
+    }
+
+    sendJSON(res, 200, { unbanned: true });
+  } catch (err) {
+    console.error('[Admin] Unban IP error:', err.message);
+    sendError(res, 500, 'Failed to unban IP');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/config — Config Listesi
+// =========================================================================
+
+addAdminRoute('GET', '/api/admin/config', async (req, res, params, body) => {
+  try {
+    const config = await getAllConfig();
+    sendJSON(res, 200, { config });
+  } catch (err) {
+    console.error('[Admin] Config error:', err.message);
+    sendError(res, 500, 'Failed to load config');
+  }
+});
+
+// =========================================================================
+// PUT /api/admin/config — Config Güncelleme
+// =========================================================================
+
+addAdminRoute('PUT', '/api/admin/config', async (req, res, params, body) => {
+  if (!body || Object.keys(body).length === 0) {
+    return sendError(res, 400, 'No config values provided');
+  }
+
+  try {
+    const updated = await updateConfig(body);
+    invalidateCache(); // Tüm cache'i temizle
+
+    sendJSON(res, 200, { updated: true, keys_updated: updated });
+  } catch (err) {
+    console.error('[Admin] Config update error:', err.message);
+    sendError(res, 500, 'Failed to update config');
+  }
+});
+
+// =========================================================================
+// Export
+// =========================================================================
+
+module.exports = { addAdminRoute };

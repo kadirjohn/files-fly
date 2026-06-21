@@ -1,13 +1,13 @@
 /**
  * routes/upload.js — Dosya Yükleme Route'ları
- * 
+ *
  * POST /api/upload        — Tek seferde dosya yükleme
  * POST /api/upload/chunk  — Chunked upload (Faz 4)
  */
 
 const { addRoute, sendJSON, sendError } = require('../server');
 const { handleUpload } = require('../services/upload-service');
-const { getClientIP } = require('../middleware/session');
+const { getHashedClientIP } = require('../services/ip-service');
 
 // =========================================================================
 // POST /api/upload — Dosya Yükleme
@@ -31,8 +31,8 @@ addRoute('POST', '/api/upload', async (req, res, params, body) => {
   }
 
   try {
-    const ipAddress = getClientIP(req);
-    const result = await handleUpload(body, contentType, req.sessionId, ipAddress);
+    const ipHash = getHashedClientIP(req);
+    const result = await handleUpload(body, contentType, req.sessionId, ipHash);
 
     sendJSON(res, 201, {
       id: result.id,

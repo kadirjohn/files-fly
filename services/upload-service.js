@@ -1,10 +1,11 @@
 /**
  * upload-service.js — Dosya Yükleme İş Mantığı
- * 
+ *
  * Multipart form data parse (built-in, zero-dependency).
  * Dosyayı /data/uploads/ altına UUID isimle kaydeder.
  * Metadata'yı PostgreSQL files tablosuna yazar.
- * 
+ * IP adresleri hash'lenerek saklanır (privacy).
+ *
  * Desteklenen:
  * - Tek seferde dosya yükleme (Faz 2)
  * - Chunked upload (Faz 4 — chunk-upload.js ile)
@@ -206,10 +207,10 @@ async function validateFileSize(fileSize) {
  * @param {Buffer} body - Raw multipart body
  * @param {string} contentType - Content-Type header
  * @param {string} sessionId - Kullanıcı session ID'si
- * @param {string} ipAddress - Kullanıcı IP adresi
+ * @param {string} ipHash - SHA-256 HMAC hash'lenmiş IP adresi
  * @returns {Promise<Object>} - Yüklenen dosyanın metadata'sı
  */
-async function handleUpload(body, contentType, sessionId, ipAddress) {
+async function handleUpload(body, contentType, sessionId, ipHash) {
   // Upload dizinini garanti et
   await ensureUploadDir();
 
@@ -271,13 +272,13 @@ async function handleUpload(body, contentType, sessionId, ipAddress) {
   const previewUrl = `${BASE_URL}/api/files/${fileId}`;
 
   const result = await query(
-    `INSERT INTO files (session_id, ip_address, filename, file_size, mime_type,
+    `INSERT INTO files (session_id, ip_hash, filename, file_size, mime_type,
                         storage_path, direct_url, expire_at, is_encrypted)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       sessionId,
-      ipAddress,
+      ipHash,
       file.filename,
       file.data.length,
       mimeType,

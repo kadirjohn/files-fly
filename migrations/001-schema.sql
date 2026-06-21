@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE files (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id      UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    ip_address      INET NOT NULL,                  -- PostgreSQL yerleşik IP tipi
+    ip_hash         VARCHAR(64) NOT NULL,            -- SHA-256 HMAC hash'lenmiş IP (privacy)
     filename        VARCHAR(512) NOT NULL,           -- Orijinal dosya adı
     file_size       BIGINT NOT NULL,                 -- Byte cinsinden
     mime_type       VARCHAR(128),                    -- MIME type (video/mp4, image/png...)
@@ -27,7 +27,7 @@ CREATE TABLE files (
 
 -- İndeksler
 CREATE INDEX idx_files_session_id  ON files(session_id);
-CREATE INDEX idx_files_ip_address  ON files(ip_address);
+CREATE INDEX idx_files_ip_hash     ON files(ip_hash);
 CREATE INDEX idx_files_expire_at   ON files(expire_at);
 CREATE INDEX idx_files_created_at  ON files(created_at);
 CREATE INDEX idx_files_mime_type   ON files(mime_type);
@@ -37,23 +37,27 @@ CREATE INDEX idx_files_mime_type   ON files(mime_type);
 -- -------------------------------------------------------------------------
 CREATE TABLE sessions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    ip_address      INET NOT NULL,
+    ip_hash         VARCHAR(64) NOT NULL,            -- SHA-256 HMAC hash'lenmiş IP (privacy)
     user_agent      TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_sessions_last_seen ON sessions(last_seen);
+CREATE INDEX idx_sessions_ip_hash   ON sessions(ip_hash);
 
 -- -------------------------------------------------------------------------
 -- IP yasaklama listesi (admin tarafından yönetilir)
 -- -------------------------------------------------------------------------
 CREATE TABLE banned_ips (
-    ip_address      INET PRIMARY KEY,
+    ip_hash         VARCHAR(64) PRIMARY KEY,          -- SHA-256 HMAC hash'lenmiş IP
     reason          TEXT,
     banned_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    banned_by       VARCHAR(64) REFERENCES admin_users(username)
+    banned_by       VARCHAR(64) REFERENCES admin_users(username),
+    expires_at      TIMESTAMPTZ                      -- NULL = kalıcı ban, doluysa TTL
 );
+
+CREATE INDEX idx_banned_ips_expires ON banned_ips(expires_at);
 
 -- -------------------------------------------------------------------------
 -- Admin kullanıcıları

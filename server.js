@@ -1,14 +1,15 @@
 /**
  * server.js — Files Fly Ana Sunucu
- * 
+ *
  * Node.js built-in `http` modülü ile sıfır bağımlılık HTTP sunucu.
- * 
+ *
  * Özellikler:
  * - Statik dosya sunumu (public/ dizini)
  * - Güvenlik header'ları (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy)
  * - Directory traversal koruması
  * - API Router (URL pattern matching, GET/POST/PUT/DELETE, JSON body parser)
  * - Middleware zinciri (rate-limiter → session → auth → router)
+ * - IP hash'leme (privacy-first, KVKK uyumlu)
  */
 
 const http = require('http');
@@ -364,6 +365,14 @@ const server = http.createServer(async (req, res) => {
  * Veritabanını başlatır ve sunucuyu dinlemeye başlar.
  */
 async function start() {
+  // IP hash servisini başlat
+  try {
+    const { initIPSecret } = require('./services/ip-service');
+    initIPSecret();
+  } catch (err) {
+    console.error('[Server] IP service initialization failed:', err.message);
+  }
+
   // Veritabanı bağlantısı ve migration'lar
   try {
     const { initDatabase } = require('./services/database');
@@ -382,6 +391,14 @@ async function start() {
     console.log('[Server] Routes loaded.');
   } catch (err) {
     console.error('[Server] Error loading routes:', err.message);
+  }
+
+  // Cleanup cron job'unu başlat
+  try {
+    const { startCleanupJob } = require('./services/cleanup-job');
+    await startCleanupJob();
+  } catch (err) {
+    console.error('[Server] Cleanup job failed to start:', err.message);
   }
 
   // Dinlemeye başla
