@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0A0A0A">
+    <meta name="description" content="Files Fly — Geçici dosya paylaşım platformu. Dosyanızı yükleyin, linki paylaşın, süre dolunca otomatik silinsin.">
+
+    <title>Files Fly — Geçici Dosya Paylaşımı</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+    <!-- Fonts: Inter + Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/style.css">
+
+    <!-- Lucide Icons (CDN + SRI) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"
+            integrity="sha384-..." 
+            crossorigin="anonymous"></script>
+
+    <!-- QRious (CDN + SRI) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"
+            integrity="sha384-..."
+            crossorigin="anonymous"></script>
+</head>
+<body>
+
+<!-- =====================================================================
+     Header / Navigation
+     ===================================================================== -->
+<header class="app-header">
+    <a href="/" class="app-logo">
+        <!-- Files Fly Logo SVG -->
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#f59e0b"/>
+                    <stop offset="100%" stop-color="#fbbf24"/>
+                </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="url(#logoGrad)"/>
+            <path d="M10 8h4l4 6v4l-4 6h-4l4-6v-4l-4-6z" fill="#0A0A0A"/>
+            <path d="M18 8h4l-4 16h-4l4-16z" fill="#0A0A0A" opacity="0.6"/>
+        </svg>
+        <span>Files Fly</span>
+    </a>
+    <nav class="app-nav">
+        <a href="/session">📂 Dosyalarım</a>
+    </nav>
+</header>
+
+<!-- =====================================================================
+     Main Container
+     ===================================================================== -->
+<main class="container">
+
+    <!-- ==================================================================
+         ADIM 1: Dosya Seçimi
+         ================================================================== -->
+    <section id="step-select" class="step active">
+        <div class="glass-card">
+            <h1 class="text-center mb-2">Dosya Paylaş</h1>
+            <p class="text-center text-muted text-sm mb-3">
+                Dosyanızı yükleyin, linki paylaşın. Belirlediğiniz süre dolunca otomatik silinir.
+            </p>
+
+            <!-- Saklama Süresi -->
+            <div class="form-group">
+                <label class="form-label" for="expire-select">⏱️ Saklama Süresi</label>
+                <select id="expire-select" class="form-select">
+                    <option value="1" selected>1 Saat</option>
+                    <option value="6">6 Saat</option>
+                    <option value="12">12 Saat</option>
+                    <option value="24">24 Saat (1 Gün)</option>
+                    <option value="48">48 Saat (2 Gün)</option>
+                </select>
+            </div>
+
+            <!-- Drop Zone -->
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-icon">☁️</div>
+                <div class="drop-zone-title">Dosyanızı sürükleyin veya seçin</div>
+                <div class="drop-zone-subtitle" id="max-size-text">Maksimum dosya boyutu: 100 MB</div>
+                <input type="file" id="file-input" class="drop-zone-input">
+            </div>
+
+            <!-- Seçilen Dosya Önizleme -->
+            <div id="file-preview" class="file-preview hidden">
+                <div class="file-preview-icon" id="preview-icon">📄</div>
+                <div class="file-preview-info">
+                    <div class="file-preview-name" id="preview-name"></div>
+                    <div class="file-preview-size" id="preview-size"></div>
+                </div>
+                <button class="btn btn-ghost btn-icon" id="clear-file-btn" title="Dosyayı kaldır">✕</button>
+            </div>
+
+            <!-- Parola Koruması (Opsiyonel) -->
+            <div class="mt-3">
+                <label class="form-checkbox" id="password-toggle-label">
+                    <input type="checkbox" id="password-toggle">
+                    <span>🔒 Parola koruması ekle (opsiyonel)</span>
+                </label>
+                <div id="password-field" class="hidden mt-1">
+                    <input type="password" id="password-input" class="form-input" placeholder="Parola girin..." autocomplete="new-password">
+                </div>
+            </div>
+
+            <!-- Yükle Butonu -->
+            <div class="text-center mt-3">
+                <button id="upload-btn" class="btn btn-primary" disabled>
+                    🚀 Dosyayı Yükle
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================================================================
+         ADIM 2: Yükleme İlerlemesi
+         ================================================================== -->
+    <section id="step-uploading" class="step">
+        <div class="glass-card">
+            <h2 class="text-center mb-2">⏳ Yükleniyor...</h2>
+
+            <div class="file-preview">
+                <div class="file-preview-icon" id="uploading-icon">📄</div>
+                <div class="file-preview-info">
+                    <div class="file-preview-name" id="uploading-name"></div>
+                    <div class="file-preview-size" id="uploading-size"></div>
+                </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="progress-stats">
+                    <span class="progress-percentage" id="progress-percent">%0</span>
+                    <span id="progress-speed"></span>
+                    <span id="progress-eta"></span>
+                </div>
+            </div>
+
+            <div class="text-center mt-2">
+                <button id="cancel-upload-btn" class="btn btn-danger btn-sm">
+                    ❌ Yüklemeyi İptal Et
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================================================================
+         ADIM 3: Başarılı
+         ================================================================== -->
+    <section id="step-success" class="step">
+        <div class="glass-card">
+            <div class="success-icon">✅</div>
+            <div class="success-message">Yükleme Başarılı!</div>
+            <div class="success-expiry" id="success-expiry-text">
+                Dosyanız <strong id="expiry-time">1 saat</strong> içinde silinecektir.
+            </div>
+
+            <!-- Doğrudan İndirme Linki -->
+            <div class="link-box-label">🔗 Doğrudan İndirme Linki [En Hızlı]</div>
+            <div class="link-box">
+                <span class="link-box-url" id="direct-link-url"></span>
+                <button class="btn btn-primary btn-sm link-box-copy" data-copy="direct-link-url">
+                    📋 Kopyala
+                </button>
+            </div>
+
+            <!-- Önizleme Sayfası Linki -->
+            <div class="link-box-label">🔗 Önizleme Sayfası</div>
+            <div class="link-box">
+                <span class="link-box-url" id="preview-link-url"></span>
+                <button class="btn btn-primary btn-sm link-box-copy" data-copy="preview-link-url">
+                    📋 Kopyala
+                </button>
+            </div>
+
+            <!-- QR Kod -->
+            <div class="qr-container">
+                <canvas id="qr-canvas" class="qr-canvas" width="120" height="120"></canvas>
+                <div class="qr-text">Mobil cihazdan taratarak dosyaya erişebilirsiniz.</div>
+            </div>
+
+            <!-- Parola Bilgisi (varsa) -->
+            <div id="password-info" class="hidden mt-2">
+                <div class="text-sm text-muted">
+                    ⚠️ Bu dosya parola korumalıdır. İndirme linkinin sonundaki <code>#...</code> kısmı şifre hash'idir.
+                    Linki paylaşırken bu kısmı da iletmeniz gerekir.
+                </div>
+            </div>
+
+            <div class="text-center mt-3">
+                <button id="new-upload-btn" class="btn btn-primary">
+                    ➕ Yeni Dosya Yükle
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================================================================
+         ADIM: Hata
+         ================================================================== -->
+    <section id="step-error" class="step">
+        <div class="glass-card text-center">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">❌</div>
+            <h2 class="mb-1">Yükleme Başarısız</h2>
+            <p class="text-muted text-sm mb-3" id="error-message">Bilinmeyen bir hata oluştu.</p>
+            <button id="retry-btn" class="btn btn-primary">
+                🔄 Tekrar Dene
+            </button>
+            <button id="new-upload-error-btn" class="btn btn-ghost mt-1">
+                ➕ Yeni Dosya Yükle
+            </button>
+        </div>
+    </section>
+
+</main>
+
+<!-- =====================================================================
+     Toast Container
+     ===================================================================== -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- =====================================================================
+     JavaScript
+     ===================================================================== -->
+<script src="/js/app.js"></script>
+
+</body>
+</html>

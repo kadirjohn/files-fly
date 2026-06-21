@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # =========================================================================
+  # Node.js Uygulama Container'ı
+  # =========================================================================
+  filesfly:
+    build: .
+    container_name: filesfly-app
+    ports:
+      - "9392:9392"
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://filesfly:filesfly_secret@postgres:5432/filesfly
+      NODE_ENV: production
+      JWT_SECRET: changeme-in-production       # Admin JWT imzalama anahtarı
+      BASE_URL: http://localhost:9392          # Link oluşturma için base URL
+    volumes:
+      - uploads_data:/data/uploads
+    networks:
+      - filesfly-net
+
+  # =========================================================================
+  # PostgreSQL Veritabanı Container'ı
+  # =========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: filesfly-db
+    restart: always
+    user: postgres                              # Non-root!
+    environment:
+      POSTGRES_USER: filesfly
+      POSTGRES_PASSWORD: filesfly_secret
+      POSTGRES_DB: filesfly
+    ports:
+      - "127.0.0.1:5432:5432"                  # Sadece localhost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filesfly -d filesfly"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - filesfly-net
+
+volumes:
+  pgdata:
+  uploads_data:
+
+networks:
+  filesfly-net:
+    driver: bridge

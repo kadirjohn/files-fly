@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0A0A0A">
+    <title>Dosyalarım — Files Fly</title>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <a href="/" class="app-logo">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="logoGrad2" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#f59e0b"/>
+                    <stop offset="100%" stop-color="#fbbf24"/>
+                </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="url(#logoGrad2)"/>
+            <path d="M10 8h4l4 6v4l-4 6h-4l4-6v-4l-4-6z" fill="#0A0A0A"/>
+            <path d="M18 8h4l-4 16h-4l4-16z" fill="#0A0A0A" opacity="0.6"/>
+        </svg>
+        <span>Files Fly</span>
+    </a>
+    <nav class="app-nav">
+        <a href="/">🏠 Ana Sayfa</a>
+    </nav>
+</header>
+
+<main class="container">
+    <div class="glass-card">
+        <h1 class="mb-2">📂 Dosyalarım</h1>
+        <p class="text-muted text-sm mb-3">
+            Bu oturumda yüklediğiniz dosyalar. Dosyalarınız belirlediğiniz süre dolduğunda otomatik olarak silinir.
+        </p>
+
+        <!-- Dosya Listesi -->
+        <div id="file-list" class="file-list">
+            <!-- JS tarafından doldurulacak -->
+        </div>
+
+        <!-- Yükleniyor -->
+        <div id="loading-state" class="text-center text-muted mt-3">
+            ⏳ Dosyalarınız yükleniyor...
+        </div>
+
+        <!-- Boş durum -->
+        <div id="empty-state" class="text-center mt-3 hidden">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">📭</div>
+            <p class="text-muted">Henüz hiç dosya yüklemediniz.</p>
+            <a href="/" class="btn btn-primary mt-2">🚀 Dosya Yükle</a>
+        </div>
+
+        <!-- Hata durumu -->
+        <div id="error-state" class="text-center mt-3 hidden">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">❌</div>
+            <p class="text-error" id="error-text">Dosyalar yüklenirken bir hata oluştu.</p>
+            <button id="retry-load-btn" class="btn btn-secondary mt-2">🔄 Tekrar Dene</button>
+        </div>
+
+        <!-- Sayfalama -->
+        <div id="pagination" class="flex-center gap-1 mt-3 hidden">
+            <button id="prev-page-btn" class="btn btn-ghost btn-sm" disabled>◀ Önceki</button>
+            <span id="page-info" class="text-sm text-muted"></span>
+            <button id="next-page-btn" class="btn btn-ghost btn-sm" disabled>Sonraki ▶</button>
+        </div>
+    </div>
+</main>
+
+<script src="/js/session.js"></script>
+
+</body>
+</html>
