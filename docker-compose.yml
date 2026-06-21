@@ -40,7 +40,7 @@ services:
       POSTGRES_PASSWORD: filesfly_secret
       POSTGRES_DB: filesfly
     ports:
-      - "127.0.0.1:5432:5432"                  # Sadece localhost
+      - "127.0.0.1:5433:5432"                  # Host port 5433 → container 5432 (5432 zaten kullanılıyorsa)
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

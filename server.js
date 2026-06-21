@@ -327,17 +327,19 @@ const server = http.createServer(async (req, res) => {
   // Middleware Zinciri: Rate Limiter → Session → Router
   // -----------------------------------------------------------------------
 
-  // 1. Rate Limiter — IP bazlı hız sınırlama + ban kontrolü
-  try {
-    const { rateLimitMiddleware } = require('./middleware/rate-limiter');
-    const rateLimited = await rateLimitMiddleware(req, res);
-    if (!rateLimited) return; // 403 veya 429 gönderildi
-  } catch (err) {
-    console.error('[Server] Rate limiter error:', err.message);
-    // Rate limiter hatasında fail-open (erişime izin ver)
+  // 1. Rate Limiter — sadece API route'larına uygula (statik dosyaları sayma)
+  if (urlPath.startsWith('/api/')) {
+    try {
+      const { rateLimitMiddleware } = require('./middleware/rate-limiter');
+      const rateLimited = await rateLimitMiddleware(req, res);
+      if (!rateLimited) return; // 403 veya 429 gönderildi
+    } catch (err) {
+      console.error('[Server] Rate limiter error:', err.message);
+      // Rate limiter hatasında fail-open (erişime izin ver)
+    }
   }
 
-  // 2. Session — Cookie-based kullanıcı oturumu
+  // 2. Session — Cookie-based kullanıcı oturumu (her istekte)
   try {
     const { sessionMiddleware } = require('./middleware/session');
     await sessionMiddleware(req, res);

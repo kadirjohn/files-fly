@@ -6,7 +6,30 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- -------------------------------------------------------------------------
--- Dosya metadata tablosu
+-- 1. Admin kullanıcıları (bağımlılık yok, önce oluştur)
+-- -------------------------------------------------------------------------
+CREATE TABLE admin_users (
+    username        VARCHAR(64) PRIMARY KEY,
+    password_hash   TEXT NOT NULL,                   -- crypto.scrypt hash (salt:hash formatı)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- -------------------------------------------------------------------------
+-- 2. Kullanıcı oturumları (files ve banned_ips buna bağımlı)
+-- -------------------------------------------------------------------------
+CREATE TABLE sessions (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    ip_hash         VARCHAR(64) NOT NULL,            -- SHA-256 HMAC hash'lenmiş IP (privacy)
+    user_agent      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sessions_last_seen ON sessions(last_seen);
+CREATE INDEX idx_sessions_ip_hash   ON sessions(ip_hash);
+
+-- -------------------------------------------------------------------------
+-- 3. Dosya metadata tablosu (sessions'a FK)
 -- -------------------------------------------------------------------------
 CREATE TABLE files (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -33,21 +56,7 @@ CREATE INDEX idx_files_created_at  ON files(created_at);
 CREATE INDEX idx_files_mime_type   ON files(mime_type);
 
 -- -------------------------------------------------------------------------
--- Kullanıcı oturumları (tarayıcı bazlı, cookie ile)
--- -------------------------------------------------------------------------
-CREATE TABLE sessions (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    ip_hash         VARCHAR(64) NOT NULL,            -- SHA-256 HMAC hash'lenmiş IP (privacy)
-    user_agent      TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_sessions_last_seen ON sessions(last_seen);
-CREATE INDEX idx_sessions_ip_hash   ON sessions(ip_hash);
-
--- -------------------------------------------------------------------------
--- IP yasaklama listesi (admin tarafından yönetilir)
+-- 4. IP yasaklama listesi (admin_users'a FK)
 -- -------------------------------------------------------------------------
 CREATE TABLE banned_ips (
     ip_hash         VARCHAR(64) PRIMARY KEY,          -- SHA-256 HMAC hash'lenmiş IP
@@ -60,16 +69,7 @@ CREATE TABLE banned_ips (
 CREATE INDEX idx_banned_ips_expires ON banned_ips(expires_at);
 
 -- -------------------------------------------------------------------------
--- Admin kullanıcıları
--- -------------------------------------------------------------------------
-CREATE TABLE admin_users (
-    username        VARCHAR(64) PRIMARY KEY,
-    password_hash   TEXT NOT NULL,                   -- crypto.scrypt hash (salt:hash formatı)
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- -------------------------------------------------------------------------
--- Sistem yapılandırması (admin panelden değiştirilebilir)
+-- 5. Sistem yapılandırması
 -- -------------------------------------------------------------------------
 CREATE TABLE config (
     key             VARCHAR(64) PRIMARY KEY,
