@@ -1,15 +1,21 @@
 {
   "name": "files-fly",
-  "version": "1.0.0",
-  "description": "Geçici dosya paylaşım platformu — chunked upload, admin panel, IP yönetimi",
+  "version": "2.0.0",
+  "description": "Geçici dosya paylaşım platformu — Object Storage (local/R2/Supabase), chunked upload, admin panel",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "migrate": "node services/database.js --migrate"
+    "migrate": "node services/database.js --migrate",
+    "storage:check": "node -e \"require('./services/storage').getBackendStatuses().then(s=>{console.log(JSON.stringify(s,null,2));process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})\""
   },
   "dependencies": {
     "pg": "^8.13.0",
     "sharp": "^0.33.5"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/lib-storage": "^3.700.0",
+    "@aws-sdk/s3-request-presigner": "^3.700.0"
   },
   "engines": {
     "node": ">=22.0.0"

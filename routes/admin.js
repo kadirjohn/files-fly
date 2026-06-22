@@ -18,7 +18,8 @@ const { addRoute, sendJSON, sendError } = require('../server');
 const { adminAuthMiddleware } = require('../middleware/auth');
 const { query } = require('../services/database');
 const { getPreview, generateThumbnail } = require('../services/preview-service');
-const { deleteFile, fileExists, readFileStream, getThumbPath, getThumbFailMarkerPath, deleteThumb } = require('../services/storage-service');
+const { fileExists, readFileStream, getThumbPath, getThumbFailMarkerPath, deleteThumb } = require('../services/storage-service');
+const storage = require('../services/storage');
 
 // Thumbnail üretimi için kaynak dosya boyut limiti (preview-service ile aynı).
 const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
@@ -200,7 +201,7 @@ addAdminRoute('GET', '/api/admin/files/:id/preview-img', async (req, res, params
 
     // Metadata'yı al (sadece image dosyaları için thumbnail)
     const result = await query(
-      `SELECT id, filename, file_size, mime_type, storage_path, expire_at
+      `SELECT id, filename, file_size, mime_type, storage_backend, storage_key, expire_at
        FROM files WHERE id = $1`,
       [fileId]
     );
@@ -270,9 +271,9 @@ addAdminRoute('DELETE', '/api/admin/files/:id', async (req, res, params, body) =
   try {
     const fileId = params.id;
 
-    // Metadata'yı al
+    // Metadata'yı al (storage_backend + storage_key — bucket mantığı)
     const result = await query(
-      `SELECT id, storage_path, filename FROM files WHERE id = $1`,
+      `SELECT id, storage_backend, storage_key, filename FROM files WHERE id = $1`,
       [fileId]
     );
 
@@ -282,16 +283,19 @@ addAdminRoute('DELETE', '/api/admin/files/:id', async (req, res, params, body) =
 
     const file = result.rows[0];
 
-    // Diskten sil
-    if (file.storage_path) {
+    // Object Storage'dan sil (dosyanın KENDİ backend'ine göre — backend
+    // değişse bile doğru yere silinir, orphan blob önlenir)
+    if (file.storage_key) {
       try {
-        await deleteFile(file.storage_path);
+        const provider = await storage.getProviderForFile(file);
+        await provider.deleteObject(file.storage_key);
       } catch (err) {
-        console.error(`[Admin] Error deleting file from disk: ${file.storage_path}`, err.message);
+        console.error(`[Admin] Error deleting object ${file.storage_key} from ${file.storage_backend}:`, err.message);
+        // Nesne silinmese bile DB kaydını sil (orphan blob uyarısı logla)
       }
     }
 
-    // Thumbnail cache'ini de temizle (varsa)
+    // Thumbnail cache'ini de temizle (her zaman local disk)
     try {
       await deleteThumb(fileId);
     } catch (err) {
@@ -418,10 +422,147 @@ addAdminRoute('PUT', '/api/admin/config', async (req, res, params, body) => {
     const updated = await updateConfig(body);
     invalidateCache(); // Tüm cache'i temizle
 
+    // Eğer storage_backend güncellendiyse aktif provider'ı da set et
+    if (body.storage_backend) {
+      try {
+        storage.setActiveBackend(body.storage_backend);
+        console.log(`[Admin] Storage backend switched to: ${body.storage_backend}`);
+      } catch (err) {
+        console.error('[Admin] Failed to switch storage backend:', err.message);
+      }
+    }
+
     sendJSON(res, 200, { updated: true, keys_updated: updated });
   } catch (err) {
     console.error('[Admin] Config update error:', err.message);
     sendError(res, 500, 'Failed to update config');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/storage/backends — Storage Backend Durum Raporu
+// =========================================================================
+// Admin paneldeki "Storage" ayar bölümü için: hangi backend'lerin
+// kullanılabilir olduğu, hangisinin aktif olduğu, eksik credential/deps.
+
+addAdminRoute('GET', '/api/admin/storage/backends', async (req, res, params, body) => {
+  try {
+    const statuses = await storage.getBackendStatuses();
+    sendJSON(res, 200, {
+      active_backend: storage.getActiveBackendName(),
+      supported: storage.SUPPORTED_BACKENDS,
+      backends: statuses,
+    });
+  } catch (err) {
+    console.error('[Admin] Storage backends error:', err.message);
+    sendError(res, 500, 'Failed to load storage backend status');
+  }
+});
+
+// =========================================================================
+// PUT /api/admin/storage/backend — Aktif Storage Backend Seç
+// =========================================================================
+// Body: { backend: 'local' | 'r2' | 'supabase' }
+// Backend kullanılabilir değilse (credential/deps eksik) 400 döner.
+// Sadece yeni dosyaları etkiler — mevcut dosyalar kendi backend'inde kalır.
+
+addAdminRoute('PUT', '/api/admin/storage/backend', async (req, res, params, body) => {
+  const backend = body && body.backend;
+
+  if (!backend) {
+    return sendError(res, 400, 'backend alanı gerekli');
+  }
+
+  if (!storage.SUPPORTED_BACKENDS.includes(backend)) {
+    return sendError(res, 400, `Desteklenmeyen backend: ${backend}. Desteklenenler: ${storage.SUPPORTED_BACKENDS.join(', ')}`);
+  }
+
+  try {
+    // Önce kullanılabilirlik kontrolü — credential/deps eksikse reddet
+    const check = await storage.checkBackendAvailability(backend);
+    if (!check.available) {
+      let msg = `Backend "${backend}" kullanılamaz: ${check.error || 'bilinmeyen sebep'}`;
+      if (check.missingDeps && check.missingDeps.length > 0) {
+        msg += `. Eksik paketler: ${check.missingDeps.join(', ')}`;
+      }
+      return sendError(res, 400, msg);
+    }
+
+    // Provider'ı instantiate et (gerçek bağlantı testi)
+    try {
+      await storage.getProvider(backend);
+    } catch (provErr) {
+      return sendError(res, 400, `Backend "${backend}" başlatılamadı: ${provErr.message}`);
+    }
+
+    // Config'e yaz (kalıcı) + aktif backend'i set et (runtime)
+    await updateConfig({ storage_backend: backend });
+    invalidateCache();
+    storage.setActiveBackend(backend);
+
+    console.log(`[Admin] Storage backend switched to: ${backend} (by ${req.adminUser.username})`);
+    sendJSON(res, 200, {
+      active_backend: backend,
+      message: `Yeni dosyalar artık "${backend}" backend'ine yüklenecek. Mevcut dosyalar kendi backend'inde kalır.`,
+    });
+  } catch (err) {
+    console.error('[Admin] Storage backend switch error:', err.message);
+    sendError(res, 500, 'Failed to switch storage backend');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/storage/config/:backend — Backend Credential Görüntüle
+// =========================================================================
+// Bir backend'in config değerlerini döndürür. Secret alanlar MASKELİ
+// (örn: "••••••••last4"), diğer alanlar düz metin. Boş alanlar null.
+// Admin paneldeki credential formunu doldurur.
+
+addAdminRoute('GET', '/api/admin/storage/config/:backend', async (req, res, params, body) => {
+  const backend = params.backend;
+  if (!storage.SUPPORTED_BACKENDS.includes(backend)) {
+    return sendError(res, 400, `Desteklenmeyen backend: ${backend}`);
+  }
+  try {
+    const cfg = await storage.getBackendConfig(backend);
+    sendJSON(res, 200, cfg);
+  } catch (err) {
+    console.error('[Admin] Storage config GET error:', err.message);
+    sendError(res, 500, 'Failed to load storage config');
+  }
+});
+
+// =========================================================================
+// PUT /api/admin/storage/config/:backend — Backend Credential Güncelle
+// =========================================================================
+// Body: { R2_BUCKET_NAME: 'foo', R2_SECRET_ACCESS_KEY: '...', ... }
+// Secret alanlar için: body'de maskelenmiş değer ("••••••••") geldiği
+// anlamına gelir → mevcut değeri değiştirme. Yeni değer geldiğinde üzerine yaz.
+// Güncelleme sonrası provider cache invalidate edilir (bir sonraki istekte
+// yeni değerlerle yeniden instantiate edilir).
+
+addAdminRoute('PUT', '/api/admin/storage/config/:backend', async (req, res, params, body) => {
+  const backend = params.backend;
+  if (!storage.SUPPORTED_BACKENDS.includes(backend)) {
+    return sendError(res, 400, `Desteklenmeyen backend: ${backend}`);
+  }
+  if (!body || Object.keys(body).length === 0) {
+    return sendError(res, 400, 'Config değerleri gerekli');
+  }
+  try {
+    const result = await storage.setBackendConfig(backend, body);
+    console.log(`[Admin] Storage config updated for ${backend}: ${result.updated.join(', ') || '(no change)'} by ${req.adminUser.username}`);
+    sendJSON(res, 200, {
+      backend,
+      updated: result.updated,
+      skipped: result.skipped,
+      message: result.updated.length > 0
+        ? `${result.updated.length} alan güncellendi. Provider yeniden başlatıldı.`
+        : 'Değişiklik yok (maskelenmiş secret atlandı veya boş değer).',
+    });
+  } catch (err) {
+    console.error('[Admin] Storage config PUT error:', err.message);
+    sendError(res, 500, 'Failed to update storage config');
   }
 });
 

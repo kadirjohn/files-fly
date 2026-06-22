@@ -2,8 +2,9 @@
  * upload-service.js — Dosya Yükleme İş Mantığı
  *
  * Multipart form data parse (built-in, zero-dependency).
- * Dosyayı /data/uploads/ altına UUID isimle kaydeder.
- * Metadata'yı PostgreSQL files tablosuna yazar.
+ * Dosyayı aktif Object Storage backend'ine (local disk / R2 / Supabase) yükler.
+ * Metadata'yı PostgreSQL files tablosuna yazar — sadece storage_key + backend,
+ * dosyanın kendisi DEĞİL (bucket mantığı).
  * IP adresleri hash'lenerek saklanır (privacy).
  *
  * Desteklenen:
@@ -14,7 +15,7 @@
 const crypto = require('crypto');
 const path = require('path');
 const { query } = require('./database');
-const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
+const storage = require('./storage');
 const { getConfig } = require('./config-service');
 // sharp lazy import — thumbnail üretimi için (image dosyaları).
 // bağımlılık yoksa thumbnail atlama sessizce yapılır.
@@ -218,6 +219,26 @@ async function validateFileSize(fileSize) {
 }
 
 // =========================================================================
+// Storage Key Üretimi
+// =========================================================================
+
+/**
+ * Dosya için benzersiz object key üretir.
+ * Backend-bağımsızdır: "uuid.ext" formatı (örn: "a1b2c3d4-....mp4").
+ * Local: /data/uploads/<key>
+ * R2/Supabase: bucket/<key>
+ *
+ * @param {string} originalFilename
+ * @returns {{ key: string, fileId: string }}
+ */
+function buildStorageKey(originalFilename) {
+  const fileId = crypto.randomUUID();
+  const ext = path.extname(originalFilename) || '';
+  const key = fileId + ext;
+  return { key, fileId };
+}
+
+// =========================================================================
 // Ana Upload İşlemi
 // =========================================================================
 
@@ -231,9 +252,6 @@ async function validateFileSize(fileSize) {
  * @returns {Promise<Object>} - Yüklenen dosyanın metadata'sı
  */
 async function handleUpload(body, contentType, sessionId, ipHash) {
-  // Upload dizinini garanti et
-  await ensureUploadDir();
-
   // Multipart parse
   const { fields, files } = parseMultipart(body, contentType);
 
@@ -282,29 +300,29 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   }
 
   // -----------------------------------------------------------------------
-  // Dosyayı Kaydet
+  // Storage'a Yükle (Bucket mantığı — local/R2/Supabase)
   // -----------------------------------------------------------------------
+  const { key: storageKey, fileId } = buildStorageKey(file.filename);
+  const provider = await storage.getDefaultProvider();
+  const storageBackend = provider.name;
 
-  const fileId = crypto.randomUUID();
-  const ext = path.extname(file.filename) || '';
-  const storageFilename = fileId + ext;
-  const storagePath = path.join(UPLOADS_DIR, storageFilename);
-
-  await writeFile(storagePath, file.data);
+  await provider.putObject(storageKey, file.data, { contentType: mimeType });
 
   // -----------------------------------------------------------------------
   // Image dosyaları için thumbnail üret (preview için compressed kopya).
   // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
   // Hata olması kritik değil — preview fallback olarak full URL kullanır.
+  // Thumbnail her zaman local diskte saklanır (küçük + sık erişilen cache).
+  // Cloud backend'lerinde kaynak dosyayı buffer olarak çekip sharp'a veririz.
   // -----------------------------------------------------------------------
   try {
-    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, file.data.length);
+    await maybeGenerateThumbnail(fileId, storageBackend, storageKey, mimeType, isEncrypted, file.data.length);
   } catch (err) {
     console.error(`[Upload] Thumbnail generation failed for ${fileId}:`, err.message);
   }
 
   // -----------------------------------------------------------------------
-  // Metadata'yı PG'ye Yaz
+  // Metadata'yı PG'ye Yaz (artık storage_path değil, storage_key + backend)
   // -----------------------------------------------------------------------
 
   const expireAt = new Date(Date.now() + expireHours * 60 * 60 * 1000).toISOString();
@@ -315,9 +333,9 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,
-                        storage_path, direct_url, expire_at, is_encrypted,
+                        storage_backend, storage_key, direct_url, expire_at, is_encrypted,
                         encryption_iv, encryption_salt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       fileId,
@@ -326,7 +344,8 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
       file.filename,
       file.data.length,
       mimeType,
-      storagePath,
+      storageBackend,
+      storageKey,
       directUrl,
       expireAt,
       isEncrypted,
@@ -353,4 +372,5 @@ module.exports = {
   getMimeType,
   isMimeTypeAllowed,
   validateFileSize,
+  buildStorageKey,
 };

@@ -895,17 +895,88 @@ DOM.banIpBtn.addEventListener('click', async () => {
 // Ayarlar
 // =========================================================================
 
+// Storage backend status cache — loadSettings tarafından doldurulur
+let storageBackendsCache = [];
+
 async function loadSettings() {
   try {
-    const resp = await apiFetch('/api/admin/config');
-    const data = await resp.json();
+    const [configResp, storageResp] = await Promise.all([
+      apiFetch('/api/admin/config'),
+      apiFetch('/api/admin/storage/backends'),
+    ]);
+    const data = await configResp.json();
     const config = data.config;
 
+    // Storage backend durumunu al (paralel fetch, hata olsa da UI kırılmasın)
+    let storageData = null;
+    try {
+      if (storageResp.ok) storageData = await storageResp.json();
+    } catch { /* ignore */ }
+    storageBackendsCache = (storageData && storageData.backends) || [];
+    const activeBackend = (storageData && storageData.active_backend) || config.storage_backend || 'local';
+
+    // Storage backend seçici HTML'i — her backend için "Credential'ları Düzenle" butonu
+    const backendOptionsHtml = storageBackendsCache.map(b => {
+      const isActive = b.backend === activeBackend;
+      const statusLabel = b.available
+        ? (isActive ? '<span class="storage-badge storage-badge-active">Aktif</span>'
+                    : '<span class="storage-badge storage-badge-ok">Hazır</span>')
+        : `<span class="storage-badge storage-badge-error" title="${escapeHtml(b.error || '')}">Eksik</span>`;
+      const labels = { local: 'Yerel Disk', r2: 'Cloudflare R2', supabase: 'Supabase Storage' };
+      const desc = {
+        local: 'Dosyalar sunucu diskine yazılır. En basit, sıfır ek yapılandırma.',
+        r2: 'Cloudflare R2 bucket. S3-uyumlu, çıkış trafiği ücretsiz. Credential\'lar aşağıdan veya .env\'den.',
+        supabase: 'Supabase Storage bucket. S3-uyumlu endpoint. Credential\'lar aşağıdan veya .env\'den.',
+      };
+      // Local backend'in düzenlenecek credential'ı yok; R2/Supabase için buton göster
+      const credBtn = b.backend !== 'local'
+        ? `<button type="button" class="btn btn-ghost btn-sm storage-cred-btn" data-backend="${b.backend}" style="margin-top:0.5rem;">Credential'ları Düzenle</button>`
+        : '';
+      return `
+        <label class="storage-backend-option ${isActive ? 'active' : ''} ${b.available ? '' : 'disabled'}">
+          <input type="radio" name="storage_backend" value="${b.backend}" ${isActive ? 'checked' : ''} ${b.available ? '' : 'disabled'}>
+          <div class="storage-backend-info">
+            <div class="storage-backend-name">${labels[b.backend] || b.backend} ${statusLabel}</div>
+            <div class="storage-backend-desc">${desc[b.backend] || ''}</div>
+            ${b.error ? `<div class="storage-backend-error">${escapeHtml(b.error)}${b.missingDeps ? ' — paketler: ' + escapeHtml(b.missingDeps.join(', ')) : ''}</div>` : ''}
+            ${credBtn}
+          </div>
+        </label>
+      `;
+    }).join('');
+
     DOM.settingsForm.innerHTML = `
-      <div class="form-group">
-        <label class="form-label">Maksimum Dosya Boyutu (MB)</label>
-        <input type="number" id="cfg-max_file_size_mb" class="form-input" value="${config.max_file_size_mb || 100}" min="1" max="10000">
+      <div class="settings-section">
+        <h3 class="settings-section-title">Dosya Depolama (Object Storage / Bucket)</h3>
+        <p class="text-muted text-sm" style="margin-bottom: 1rem;">
+          Dosyaların nerede saklanacağını seçin. Yeni dosyalar seçilen backend'e yüklenir;
+          mevcut dosyalar kendi backend'inde kalır (backend değişse bile doğru silinir).
+          Cloud backend credential'larını buradan (.env yerine DB'de) düzenleyebilirsiniz —
+          restart gerekmez, anında etkilidir.
+        </p>
+        <div class="storage-backend-list" id="storage-backend-list">
+          ${backendOptionsHtml}
+        </div>
+
+        <!-- Credential editör paneli (talep üzerine yüklenir) -->
+        <div id="storage-cred-panel" class="storage-cred-panel hidden"></div>
+
+        <div class="text-center mt-2">
+          <button type="button" id="storage-apply-btn" class="btn btn-primary">
+            Depolama Backend'ini Uygula
+          </button>
+          <span id="storage-apply-status" class="text-sm text-muted ml-1"></span>
+        </div>
       </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Genel Ayarlar</h3>
+        <div class="form-group">
+          <label class="form-label">Maksimum Dosya Boyutu (MB)</label>
+          <input type="number" id="cfg-max_file_size_mb" class="form-input" value="${config.max_file_size_mb || 100}" min="1" max="10000">
+        </div>
       <div class="form-group">
         <label class="form-label">Rate Limit (istek / dakika)</label>
         <div class="flex gap-1">
@@ -978,6 +1049,240 @@ DOM.settingsSaveBtn.addEventListener('click', async () => {
     }
   } finally {
     DOM.settingsSaveBtn.disabled = false;
+  }
+});
+
+// =========================================================================
+// Storage Credential Editör (R2 / Supabase — DB-backed, .env fallback)
+// =========================================================================
+
+/**
+ * Bir backend'in credential formunu yükler ve panelde gösterir.
+ * GET /api/admin/storage/config/:backend → schema + masked config
+ * Secret alanlar masked gelir; input boş bırakılırsa veya masked kalırsa
+ * mevcut değer korunur (PUT sırasında skip edilir).
+ */
+async function loadStorageCredentialForm(backend) {
+  const panel = document.getElementById('storage-cred-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
+
+  try {
+    const resp = await apiFetch(`/api/admin/storage/config/${backend}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      panel.innerHTML = `<p class="text-error text-sm">${escapeHtml(err.error || 'Yüklenemedi')}</p>`;
+      return;
+    }
+    const data = await resp.json();
+    renderStorageCredentialForm(backend, data);
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      panel.innerHTML = `<p class="text-error text-sm">${escapeHtml(err.message)}</p>`;
+    }
+  }
+}
+
+/**
+ * Credential formunu render eder.
+ * @param {string} backend
+ * @param {{ backend: string, config: Object, schema: Array }} data
+ */
+function renderStorageCredentialForm(backend, data) {
+  const panel = document.getElementById('storage-cred-panel');
+  const labels = { r2: 'Cloudflare R2', supabase: 'Supabase Storage' };
+
+  const fieldsHtml = (data.schema || []).map(field => {
+    const current = data.config[field.key];
+    const isSecret = field.secret;
+    const inputType = isSecret ? 'password' : 'text';
+    const valueAttr = current ? `value="${escapeHtml(current)}"` : '';
+    const placeholderAttr = field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : '';
+    const secretHint = isSecret
+      ? '<span class="text-xs text-muted">Mevcut değer maskeli. Değiştirmek için yeni değer girin, korumak için boş bırakın.</span>'
+      : '';
+    // Secret alanlarda "göster/gizle" toggle
+    const toggleBtn = isSecret
+      ? `<button type="button" class="storage-secret-toggle" data-target="cred-${field.key}" title="Göster/Gizle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>`
+      : '';
+    return `
+      <div class="form-group storage-cred-field">
+        <label class="form-label" for="cred-${field.key}">${escapeHtml(field.label)}${isSecret ? ' <span class="storage-secret-dot">●</span>' : ''}</label>
+        <div class="storage-cred-input-row">
+          <input type="${inputType}" id="cred-${field.key}" class="form-input storage-cred-input" data-key="${field.key}" data-secret="${isSecret ? '1' : '0'}" data-original="${current ? escapeHtml(current) : ''}" ${valueAttr} ${placeholderAttr} autocomplete="off">
+          ${toggleBtn}
+        </div>
+        ${secretHint}
+      </div>
+    `;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="storage-cred-card">
+      <div class="storage-cred-header">
+        <h4 class="storage-cred-title">${labels[backend] || backend} — Credential'lar</h4>
+        <button type="button" class="btn btn-ghost btn-sm" id="storage-cred-close" title="Kapat">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="text-muted text-xs" style="margin-bottom:1rem;">
+        Değerler DB'de saklanır (restart'a dayanıklı). .env'de de varsa DB değeri önceliklidir.
+        Secret alanlar maskeli gösterilir — yeni değer girmezseniz mevcut değer korunur.
+      </p>
+      ${fieldsHtml || '<p class="text-muted text-sm">Bu backend\'in düzenlenebilir credential\'ı yok.</p>'}
+      <div class="text-center mt-2">
+        <button type="button" id="storage-cred-save" class="btn btn-primary" data-backend="${backend}">
+          Credential'ları Kaydet
+        </button>
+        <span id="storage-cred-status" class="text-sm text-muted ml-1"></span>
+      </div>
+    </div>
+  `;
+
+  // Secret göster/gizle toggle
+  panel.querySelectorAll('.storage-secret-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      const input = document.getElementById(targetId);
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
+  });
+
+  // Kapat butonu
+  const closeBtn = document.getElementById('storage-cred-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      panel.classList.add('hidden');
+      panel.innerHTML = '';
+    });
+  }
+
+  // Kaydet butonu
+  const saveBtn = document.getElementById('storage-cred-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => saveStorageCredentials(backend));
+  }
+}
+
+/**
+ * Credential formunu toplar ve PUT ile kaydeder.
+ * Secret alanlar: değer maskeli ("••••...") veya boşsa skip edilir (mevcut korunur).
+ */
+async function saveStorageCredentials(backend) {
+  const statusEl = document.getElementById('storage-cred-status');
+  const saveBtn = document.getElementById('storage-cred-save');
+  if (!saveBtn) return;
+
+  const updates = {};
+  const inputs = document.querySelectorAll('.storage-cred-input');
+  inputs.forEach(input => {
+    const key = input.dataset.key;
+    const isSecret = input.dataset.secret === '1';
+    const original = input.dataset.original || '';
+    const val = (input.value || '').trim();
+
+    if (isSecret) {
+      // Secret: boş veya maskeli kaldıysa → mevcut değeri koru (skip)
+      if (!val || val === original || /^•+/.test(val)) {
+        return; // updates'e ekleme
+      }
+      updates[key] = val;
+    } else {
+      // Non-secret: boş string geçerli (temizleme), ama aynı değerse skip
+      if (val === original) return;
+      updates[key] = val;
+    }
+  });
+
+  const keys = Object.keys(updates);
+  if (keys.length === 0) {
+    if (statusEl) { statusEl.textContent = 'Değişiklik yok.'; statusEl.className = 'text-sm text-muted ml-1'; }
+    return;
+  }
+
+  saveBtn.disabled = true;
+  if (statusEl) { statusEl.textContent = 'Kaydediliyor...'; statusEl.className = 'text-sm text-muted ml-1'; }
+
+  try {
+    const resp = await apiFetch(`/api/admin/storage/config/${backend}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      if (statusEl) { statusEl.textContent = `✓ ${data.message || 'Kaydedildi'}`; statusEl.className = 'text-sm text-success ml-1'; }
+      // Backend durumunu yenile (credential girilince "Eksik" → "Hazır" olabilir)
+      loadSettings();
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 5000);
+    } else {
+      if (statusEl) { statusEl.textContent = `✕ ${data.error || 'Başarısız'}`; statusEl.className = 'text-sm text-error ml-1'; }
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      if (statusEl) { statusEl.textContent = `✕ ${err.message}`; statusEl.className = 'text-sm text-error ml-1'; }
+    }
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+// =========================================================================
+// Storage Backend Uygula (ayrı buton — config kaydetmeden bağımsız)
+// =========================================================================
+// "Depolama Backend'ini Uygula" butonu için delegated listener.
+// loadSettings her render'da yeni buton ürettiği için static listener yerine
+// event delegation kullanıyoruz (settings-form üzerinde).
+
+// Delegated listener: hem "Depolama Backend'ini Uygula" hem
+// "Credential'ları Düzenle" butonlarını yakalar (loadSettings her render'da
+// yeni butonlar ürettiği için event delegation kullanıyoruz).
+DOM.settingsForm.addEventListener('click', async (e) => {
+  // "Credential'ları Düzenle" butonu (R2/Supabase)
+  const credBtn = e.target.closest('.storage-cred-btn');
+  if (credBtn) {
+    e.preventDefault();
+    const backend = credBtn.dataset.backend;
+    if (backend) await loadStorageCredentialForm(backend);
+    return;
+  }
+
+  if (e.target.id !== 'storage-apply-btn') return;
+
+  const selected = DOM.settingsForm.querySelector('input[name="storage_backend"]:checked');
+  const statusEl = document.getElementById('storage-apply-status');
+  const btn = e.target;
+
+  if (!selected) {
+    if (statusEl) { statusEl.textContent = 'Lütfen bir backend seçin.'; statusEl.className = 'text-sm text-error ml-1'; }
+    return;
+  }
+
+  const backend = selected.value;
+  btn.disabled = true;
+  if (statusEl) { statusEl.textContent = 'Uygulanıyor...'; statusEl.className = 'text-sm text-muted ml-1'; }
+
+  try {
+    const resp = await apiFetch('/api/admin/storage/backend', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend }),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      if (statusEl) { statusEl.textContent = `✓ ${data.message || 'Uygulandı'}`; statusEl.className = 'text-sm text-success ml-1'; }
+      loadSettings(); // UI'ı yenile (aktif badge güncellensin)
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 5000);
+    } else {
+      if (statusEl) { statusEl.textContent = `✕ ${data.error || 'Başarısız'}`; statusEl.className = 'text-sm text-error ml-1'; }
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      if (statusEl) { statusEl.textContent = `✕ ${err.message}`; statusEl.className = 'text-sm text-error ml-1'; }
+    }
+  } finally {
+    btn.disabled = false;
   }
 });
 

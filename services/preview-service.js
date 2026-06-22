@@ -8,14 +8,17 @@
  * - application/pdf → direct URL
  * - Diğer → "Preview not available"
  *
- * ÖNEMLİ: Image preview artık base64 data URI döndürmüyor (7MB foto → 9.3MB
- * base64 string JSON içinde → kırık görüntü + bellek tüketimi). Bunun yerine
- * thumbnail URL döndürülür; tarayıcı streaming ile düzgün yükler.
+ * Bucket mantığı: kaynak dosya içeriği artık Object Storage'da (local/R2/Supabase).
+ * Text preview ve thumbnail üretimi için `provider.getObjectBuffer()` ile içeriği çekeriz.
+ * Thumbnail'lar her zaman local diskte cache'lenir (küçük + sık erişilen).
+ *
+ * ÖNEMLİ: Image preview base64 data URI döndürmüyor — thumbnail URL döndürür;
+ * tarayıcı streaming ile düzgün yükler.
  */
 
 const fs = require('fs');
-const path = require('path');
 const { query } = require('./database');
+const storage = require('./storage');
 const { fileExists, ensureThumbsDir, ensureThumbSubDir, getThumbPath, getThumbFailMarkerPath } = require('./storage-service');
 
 // sharp lazy-load — bağımlılık yoksa bile text/video/pdf preview çalışmaya devam etsin
@@ -50,10 +53,10 @@ const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
  * @returns {Promise<Object>} - { type, content, mime_type, filename }
  */
 async function getPreview(fileId) {
-  // Metadata'yı al
+  // Metadata'yı al (artık storage_backend + storage_key)
   const result = await query(
-    `SELECT id, filename, file_size, mime_type, storage_path, expire_at,
-            is_encrypted, encryption_iv, encryption_salt
+    `SELECT id, filename, file_size, mime_type, storage_backend, storage_key,
+            expire_at, is_encrypted, encryption_iv, encryption_salt
      FROM files WHERE id = $1`,
     [fileId]
   );
@@ -69,10 +72,9 @@ async function getPreview(fileId) {
     return { type: 'error', content: 'File has expired' };
   }
 
-  // Dosya diskte var mı?
-  const exists = await fileExists(file.storage_path);
-  if (!exists) {
-    return { type: 'error', content: 'File not found on disk' };
+  // storage_key yoksa (orphan)
+  if (!file.storage_key) {
+    return { type: 'error', content: 'File storage key missing' };
   }
 
   const mimeType = file.mime_type || 'application/octet-stream';
@@ -102,7 +104,7 @@ async function getPreview(fileId) {
   // MIME type'a göre preview stratejisi
   // -----------------------------------------------------------------------
 
-  // Text dosyaları → içerik oku
+  // Text dosyaları → içerik oku (provider.getObjectBuffer)
   if (isTextMime(mimeType)) {
     return previewText(file);
   }
@@ -144,18 +146,22 @@ async function getPreview(fileId) {
 }
 
 // =========================================================================
-// Text Preview
+// Text Preview (provider üzerinden buffer okuma)
 // =========================================================================
 
 async function previewText(file) {
   try {
-    const fd = await fs.promises.open(file.storage_path, 'r');
-    const buffer = Buffer.alloc(TEXT_PREVIEW_MAX);
-    const { bytesRead } = await fd.read(buffer, 0, TEXT_PREVIEW_MAX, 0);
-    await fd.close();
+    const provider = await storage.getProviderForFile(file);
 
-    const content = buffer.toString('utf-8', 0, bytesRead);
-    const truncated = bytesRead >= TEXT_PREVIEW_MAX && file.file_size > TEXT_PREVIEW_MAX;
+    // Cloud backend'lerde ilk N byte'ı partial okuyamayız (S3 Range var ama
+    // basitlik için buffer çek + slice). 100KB limit küçük olduğu için sorun değil.
+    // Local provider buffer'ı tüm dosya boyutunda okur — text preview için
+    // ilk 100KB yeterli, ama buffer yine de tamamı. Büyük text dosyaları için
+    // alternatif: getObjectStream + ilk N byte. Şimdilik basit yol.
+    const buffer = await provider.getObjectBuffer(file.storage_key);
+    const slice = buffer.subarray(0, TEXT_PREVIEW_MAX);
+    const content = slice.toString('utf-8');
+    const truncated = buffer.length > TEXT_PREVIEW_MAX;
 
     return {
       type: 'text',
@@ -224,8 +230,9 @@ async function previewImage(file) {
  *   - Maksimum 800x600 px, en-boy oranını korur (fit: inside)
  *   - JPEG formatı, kalite 80 (küçük boyut, hızlı yükleme)
  *   - /data/thumbs/:fileId.jpg yolunda saklanır
+ *   - Kaynak içeriği provider.getObjectBuffer() ile çekilir (local veya cloud)
  *
- * @param {Object} file - { id, storage_path, mime_type }
+ * @param {Object} file - { id, storage_backend, storage_key, mime_type }
  * @returns {Promise<string>} - Thumbnail dosya yolu
  */
 async function generateThumbnail(file) {
@@ -247,9 +254,13 @@ async function generateThumbnail(file) {
   // Alt dizini oluştur (sub-directory hashing)
   await ensureThumbSubDir(file.id);
 
+  // Kaynak içeriğini provider'dan çek (Buffer). sharp Buffer kabul eder.
+  const provider = await storage.getProviderForFile(file);
+  const sourceBuffer = await provider.getObjectBuffer(file.storage_key);
+
   // sharp ile küçült + JPEG'e çevir. Başarısız olursa negative cache marker yaz.
   try {
-    await sharp(file.storage_path)
+    await sharp(sourceBuffer)
       .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, {
         fit: 'inside',       // En-boy oranını koru, sığdır
         withoutEnlargement: true,  // Küçük resimleri büyütme
@@ -299,13 +310,18 @@ function isTextMime(mimeType) {
  * Upload sırasında çağrılır: image dosyaları için thumbnail üretir.
  * Şifreli dosyalar (ciphertext) ve image olmayanlar atlanır.
  *
+ * NOT: Artık storagePath yerine (storageBackend, storageKey) alır — bucket
+ * mantığı. Thumbnail her zaman local diskte; kaynak içeriği provider'dan çekilir.
+ *
  * @param {string} fileId
- * @param {string} storagePath
+ * @param {string} storageBackend - 'local' | 'r2' | 'supabase'
+ * @param {string} storageKey - object key
  * @param {string} mimeType
  * @param {boolean} isEncrypted
+ * @param {number} fileSizeBytes
  * @returns {Promise<boolean>} - Thumbnail üretildiyse true
  */
-async function maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, fileSizeBytes) {
+async function maybeGenerateThumbnail(fileId, storageBackend, storageKey, mimeType, isEncrypted, fileSizeBytes) {
   // Şifreli dosyaların içeriği ciphertext'tir → sharp decode edemez, atla.
   if (isEncrypted) return false;
   // Sadece image/* için thumbnail (diğer türler zaten indirilmeli).
@@ -320,7 +336,7 @@ async function maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted
   }
 
   try {
-    await generateThumbnail({ id: fileId, storage_path: storagePath, mime_type: mimeType });
+    await generateThumbnail({ id: fileId, storage_backend: storageBackend, storage_key: storageKey, mime_type: mimeType });
     return true;
   } catch (err) {
     console.error(`[Preview] Thumbnail generation failed at upload for ${fileId}:`, err.message);

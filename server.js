@@ -505,6 +505,27 @@ async function start() {
     console.error('[Server] Error loading routes:', err.message);
   }
 
+  // Aktif storage backend'ini config'den yükle (bucket mantığı)
+  try {
+    const { getConfig } = require('./services/config-service');
+    const storage = require('./services/storage');
+    const configuredBackend = await getConfig('storage_backend');
+    const backend = configuredBackend || storage.resolveBackendFromEnv();
+    storage.setActiveBackend(backend);
+    // Provider'ı instantiate et (eksik credential varsa burada uyarı ver, local'e düş)
+    try {
+      const provider = await storage.getDefaultProvider();
+      console.log(`[Server] Active storage backend: ${backend} (provider: ${provider.name}, cloud: ${provider.isCloud})`);
+    } catch (provErr) {
+      console.error(`[Server] Storage backend "${backend}" başlatılamadı: ${provErr.message}`);
+      console.error('[Server] Falling back to local storage.');
+      storage.setActiveBackend('local');
+      await storage.getDefaultProvider();
+    }
+  } catch (err) {
+    console.error('[Server] Storage init error (using default local):', err.message);
+  }
+
   // Cleanup cron job'unu başlat
   try {
     const { startCleanupJob } = require('./services/cleanup-job');

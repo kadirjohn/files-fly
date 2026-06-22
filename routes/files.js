@@ -1,8 +1,11 @@
 /**
  * routes/files.js — Dosya Metadata ve İndirme Route'ları
- * 
+ *
  * GET /api/files/:id     — Dosya metadata
- * GET /api/files/:id/dl  — Dosya indirme (stream, Range destekli)
+ * GET /api/files/:id/dl  — Dosya indirme
+ *                          Local backend: stream (Range destekli, 206 Partial)
+ *                          Cloud backend : 302 redirect → presigned URL
+ * GET /api/files/:id/thumb — Image thumbnail (local cache, tüm backend'ler için)
  */
 
 const { addRoute, sendJSON, sendError, serveStaticFile } = require('../server');
@@ -121,9 +124,9 @@ addRoute('GET', '/api/files/:id/thumb', async (req, res, params, body) => {
   }
 
   try {
-    // Doğrudan metadata çek (storage_path + file_size gerekli)
+    // Doğrudan metadata çek (storage_backend + storage_key + file_size gerekli)
     const result = await query(
-      `SELECT id, mime_type, storage_path, is_encrypted, expire_at, file_size
+      `SELECT id, mime_type, storage_backend, storage_key, is_encrypted, expire_at, file_size
        FROM files WHERE id = $1`,
       [fileId]
     );
@@ -159,7 +162,7 @@ addRoute('GET', '/api/files/:id/thumb', async (req, res, params, body) => {
         return sendError(res, 404, 'Thumbnail not available (source too large)');
       }
       try {
-        await generateThumbnail({ id: fileId, storage_path: file.storage_path, mime_type: file.mime_type });
+        await generateThumbnail({ id: fileId, storage_backend: file.storage_backend, storage_key: file.storage_key, mime_type: file.mime_type });
       } catch (genErr) {
         console.error('[Files] Thumbnail generation failed:', genErr.message);
       }
@@ -211,7 +214,19 @@ addRoute('GET', '/api/files/:id/dl', async (req, res, params, body) => {
       return sendError(res, 410, 'File has expired and been deleted');
     }
 
-    // Stream'i pipe et
+    if (result.statusCode === 500) {
+      return sendError(res, 500, 'Error preparing download');
+    }
+
+    // Cloud backend → 302 redirect to presigned URL (stream = null, redirectUrl dolu).
+    // İstemci doğrudan bucket'tan indirir; sunucu trafiği yok.
+    if (result.statusCode === 302 && result.redirectUrl) {
+      res.writeHead(302, result.headers);
+      res.end();
+      return;
+    }
+
+    // Local backend → stream'i pipe et (Range destekli)
     res.writeHead(result.statusCode, result.headers);
 
     if (result.stream) {

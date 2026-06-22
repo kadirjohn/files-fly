@@ -1167,6 +1167,195 @@ h3 { font-size: 1.25rem; }
     color: var(--color-text-muted);
 }
 
+/* =========================================================================
+   Storage Backend Selector (Admin Settings — Bucket mantığı)
+   ========================================================================= */
+.settings-section {
+    margin-bottom: 1.5rem;
+}
+
+.settings-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin-bottom: 0.5rem;
+}
+
+.settings-divider {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: 1.5rem 0;
+}
+
+.storage-backend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.storage-backend-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.storage-backend-option:hover:not(.disabled) {
+    border-color: var(--color-border-active);
+    background: var(--color-surface-hover);
+}
+
+.storage-backend-option.active {
+    border-color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.06);
+    box-shadow: var(--shadow-glow);
+}
+
+.storage-backend-option.disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.storage-backend-option input[type="radio"] {
+    margin-top: 0.25rem;
+    accent-color: var(--color-primary);
+    cursor: inherit;
+}
+
+.storage-backend-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.storage-backend-name {
+    font-weight: 600;
+    color: var(--color-text-main);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.2rem;
+}
+
+.storage-backend-desc {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+}
+
+.storage-backend-error {
+    font-size: 0.75rem;
+    color: var(--color-error);
+    margin-top: 0.35rem;
+    word-break: break-word;
+}
+
+.storage-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+}
+
+.storage-badge-active {
+    background: rgba(var(--color-primary-rgb), 0.15);
+    color: var(--color-primary);
+    border-color: rgba(var(--color-primary-rgb), 0.35);
+}
+
+.storage-badge-ok {
+    background: rgba(var(--color-success-rgb), 0.12);
+    color: var(--color-success);
+    border-color: rgba(var(--color-success-rgb), 0.3);
+}
+
+.storage-badge-error {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--color-error);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* =========================================================================
+   Storage Credential Editor Panel (Admin Settings)
+   ========================================================================= */
+.storage-cred-panel {
+    margin-top: 1rem;
+}
+
+.storage-cred-panel.hidden {
+    display: none;
+}
+
+.storage-cred-card {
+    padding: 1.25rem;
+    background: rgba(var(--color-primary-rgb), 0.03);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.2);
+    border-radius: var(--radius-md);
+}
+
+.storage-cred-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.storage-cred-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.storage-cred-field {
+    margin-bottom: 1rem;
+}
+
+.storage-cred-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.storage-cred-input-row .form-input {
+    flex: 1;
+}
+
+.storage-secret-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.storage-secret-toggle:hover {
+    border-color: var(--color-border-active);
+    color: var(--color-primary);
+}
+
+.storage-secret-dot {
+    color: var(--color-primary);
+    font-size: 0.6em;
+    vertical-align: middle;
+}
+
 /* Preview Panel — Modal Overlay */
 .preview-panel {
     position: fixed !important;

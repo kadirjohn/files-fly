@@ -4,20 +4,24 @@
  * setInterval ile periyodik olarak çalışır.
  * Config'deki `cleanup_interval_minutes` değerine göre sıklık ayarlanır.
  * 
- * İşlem:
- * 1. expire_at < NOW() olan dosyaları PG'den sorgula
- * 2. Her dosyayı diskten sil (fs.unlink)
- * 3. PG'den kaydı sil
- * 4. İstatistik logla
+ * İşlem (Bucket mantığı):
+ * 1. expire_at < NOW() olan dosyaları PG'den sorgula (storage_backend + storage_key)
+ * 2. Her dosyayı KENDİ backend'inden sil (provider.deleteObject)
+ *    — backend değişse bile eski R2/local dosyaları doğru yere silinir
+ * 3. Thumbnail cache'ini temizle (her zaman local disk)
+ * 4. PG'den kaydı sil
+ * 5. İstatistik logla
  */
 
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
 const { getConfig } = require('./config-service');
+const storage = require('./storage');
 const { deleteThumb, THUMBS_DIR, getThumbPath, getThumbFailMarkerPath, ensureThumbSubDir } = require('./storage-service');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
+const TMP_DIR = process.env.CHUNK_TMP_DIR || path.join(UPLOADS_DIR, 'tmp');
 
 // Migration flag — migrateFlatThumbs bir kez çalışsın (in-memory).
 let flatThumbMigrationDone = false;
@@ -45,9 +49,10 @@ async function runCleanup() {
   try {
     // -----------------------------------------------------------------------
     // 1. Süresi dolmuş dosyaları PG'den sorgula
+    //    storage_backend + storage_key (artık storage_path yok)
     // -----------------------------------------------------------------------
     const result = await query(
-      `SELECT id, storage_path, file_size, filename
+      `SELECT id, storage_backend, storage_key, file_size, filename
        FROM files
        WHERE expire_at < NOW()
        ORDER BY expire_at ASC
@@ -67,17 +72,23 @@ async function runCleanup() {
     console.log(`[Cleanup] Found ${expiredFiles.length} expired file(s). Cleaning up...`);
 
     // -----------------------------------------------------------------------
-    // 2. Her dosyayı diskten sil ve PG'den kaldır
+    // 2. Her dosyayı kendi backend'inden sil ve PG'den kaldır
     // -----------------------------------------------------------------------
     for (const file of expiredFiles) {
       try {
-        // Diskten sil
-        if (file.storage_path && fs.existsSync(file.storage_path)) {
-          await fs.promises.unlink(file.storage_path);
-          freedBytes += parseInt(file.file_size) || 0;
+        // Object Storage'dan sil (backend'e göre doğru provider)
+        if (file.storage_key) {
+          try {
+            const provider = await storage.getProviderForFile(file);
+            await provider.deleteObject(file.storage_key);
+            freedBytes += parseInt(file.file_size) || 0;
+          } catch (delErr) {
+            console.error(`[Cleanup] Error deleting object ${file.storage_key} from ${file.storage_backend}:`, delErr.message);
+            // Nesne silinmese bile DB kaydını sil (orphan blob uyarısı logla)
+          }
         }
 
-        // Thumbnail cache'ini de temizle (image dosyaları için)
+        // Thumbnail cache'ini de temizle (image dosyaları için, her zaman local)
         try {
           await deleteThumb(file.id);
         } catch (err) {
@@ -91,14 +102,12 @@ async function runCleanup() {
       } catch (err) {
         console.error(`[Cleanup] Error deleting file ${file.id} (${file.filename}):`, err.message);
 
-        // Dosya diskte yoksa PG'den yine de sil (orphan kayıt)
-        if (err.code === 'ENOENT') {
-          try {
-            await query(`DELETE FROM files WHERE id = $1`, [file.id]);
-            deletedCount++;
-          } catch (dbErr) {
-            console.error(`[Cleanup] Error removing orphan record ${file.id}:`, dbErr.message);
-          }
+        // Provider hatasında bile DB kaydını silmeyi dene (orphan kayıt)
+        try {
+          await query(`DELETE FROM files WHERE id = $1`, [file.id]);
+          deletedCount++;
+        } catch (dbErr) {
+          console.error(`[Cleanup] Error removing orphan record ${file.id}:`, dbErr.message);
         }
       }
     }
@@ -127,18 +136,16 @@ async function runCleanup() {
 
 /**
  * /data/uploads/tmp/ altında kalmış, artık PG'de kaydı olmayan
- * chunk dizinlerini temizler.
+ * chunk dizinlerini temizler. Chunk'lar HER ZAMAN local tmp'de toplanır.
  */
 async function cleanupOrphanChunkDirs() {
-  const tmpDir = path.join(UPLOADS_DIR, 'tmp');
-
-  if (!fs.existsSync(tmpDir)) return;
+  if (!fs.existsSync(TMP_DIR)) return;
 
   try {
-    const dirs = fs.readdirSync(tmpDir);
+    const dirs = fs.readdirSync(TMP_DIR);
 
     for (const dir of dirs) {
-      const dirPath = path.join(tmpDir, dir);
+      const dirPath = path.join(TMP_DIR, dir);
       const stat = fs.statSync(dirPath);
 
       if (!stat.isDirectory()) continue;
@@ -162,6 +169,9 @@ async function cleanupOrphanChunkDirs() {
 /**
  * Eski düz yapıdaki (/data/thumbs/<id>.jpg) thumbnail'ları yeni sub-directory
  * yapısına (/data/thumbs/a1/b2/<id>.jpg) taşır. Bir kez çalışır (flatThumbMigrationDone).
+ *
+ * Bu migration yalnızca local thumbnail cache'i içindir — ana dosya storage'ı
+ * (bucket) bundan bağımsızdır. Thumbnail'lar her zaman local diskte saklanır.
  *
  * Migration stratejisi:
  *   - /data/thumbs/ kökünde doğrudan .jpg / .fail dosyaları varsa eski düz yapının

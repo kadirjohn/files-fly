@@ -7,8 +7,11 @@
  * 1. İstemci dosyayı config'deki chunk_size_mb ile parçalara böler
  * 2. Her chunk POST /api/upload/chunk ile gönderilir
  * 3. Chunk'lar /data/uploads/tmp/{file_id}/chunk_{index} altında biriktirilir
- * 4. Son chunk geldiğinde tüm parçalar birleştirilir → /data/uploads/{file_id}.ext
- * 5. Metadata PG'ye yazılır, geçici dizin silinir
+ *    (chunk'lar HER ZAMAN local tmp'de toplanır — resume + hızlı birleştirme için)
+ * 4. Son chunk geldiğinde tüm parçalar birleştirilir:
+ *    - Local backend → /data/uploads/{key} dosyasına yaz
+ *    - Cloud backend (R2/Supabase) → bucket'a stream ile putObject
+ * 5. Metadata PG'ye yazılır (storage_backend + storage_key), geçici dizin silinir
  * 6. GET /api/upload/chunk/:id/status ile resume desteği (hangi chunk'lar alındı?)
  */
 
@@ -16,9 +19,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
-const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
+const storage = require('./storage');
 const { getConfig } = require('./config-service');
-const { getMimeType, isMimeTypeAllowed, validateFileSize } = require('./upload-service');
+const { getMimeType, isMimeTypeAllowed, validateFileSize, buildStorageKey } = require('./upload-service');
 // sharp lazy import — chunked finalize sırasında image thumbnail üretimi.
 let maybeGenerateThumbnail = async () => false;
 try {
@@ -30,10 +33,10 @@ try {
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 9392}`;
 
 // =========================================================================
-// Geçici Chunk Dizini
+// Geçici Chunk Dizini (HER ZAMAN local — backend'den bağımsız)
 // =========================================================================
 
-const TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
+const TMP_DIR = process.env.CHUNK_TMP_DIR || path.join(process.env.UPLOADS_DIR || '/data/uploads', 'tmp');
 
 /**
  * Geçici chunk dizininin var olduğundan emin olur.
@@ -73,7 +76,6 @@ function chunkDir(fileId) {
  * @returns {Promise<Object>} - { chunk_index, complete } veya { complete: true, id, filename, ... }
  */
 async function receiveChunk(fileId, chunkIndex, totalChunks, chunkData, metadata) {
-  await ensureUploadDir();
   await ensureTmpDir();
 
   const dir = chunkDir(fileId);
@@ -177,8 +179,12 @@ async function getChunkStatus(fileId) {
 // =========================================================================
 
 /**
- * Tüm chunk'ları birleştirir, dosyayı ana upload dizinine taşır,
+ * Tüm chunk'ları birleştirir, dosyayı aktif storage backend'ine yükler,
  * metadata'yı PG'ye kaydeder, geçici dizini temizler.
+ *
+ * Strateji (backend'e göre):
+ *   - local  : chunk'ları doğrudan /data/uploads/{key} dosyasına yazar (rename/stream)
+ *   - cloud  : chunk'ları tek geçici dosyada birleştir, sonra bucket'a stream ile putObject
  *
  * @param {string} fileId
  * @param {string} dir - Chunk geçici dizini
@@ -198,52 +204,93 @@ async function finalizeUpload(fileId, dir, metadata) {
   const originalMimeType = metadata.mime_type || getMimeType(filename);
 
   // -----------------------------------------------------------------------
-  // Tüm chunk'ları sırayla birleştir
-  // -----------------------------------------------------------------------
-  const ext = path.extname(filename) || '';
-  const storageFilename = fileId + ext;
-  const storagePath = path.join(UPLOADS_DIR, storageFilename);
-
-  const writeStream = fs.createWriteStream(storagePath);
-
-  for (let i = 0; i < metadata.totalChunks; i++) {
-    const chunkPath = path.join(dir, `chunk_${i}`);
-
-    if (!fs.existsSync(chunkPath)) {
-      writeStream.destroy();
-      // Eksik chunk varsa temizlik yap
-      try { fs.unlinkSync(storagePath); } catch { /* ignore */ }
-      throw new Error(`Missing chunk ${i}. Upload cannot be completed.`);
-    }
-
-    const chunkData = await fs.promises.readFile(chunkPath);
-    writeStream.write(chunkData);
-  }
-
-  // Stream'in bitmesini bekle
-  await new Promise((resolve, reject) => {
-    writeStream.end((err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // MIME type validasyonu
+  // MIME type validasyonu (yüklemeden önce — boşa upload yapma)
   // -----------------------------------------------------------------------
   const mimeType = originalMimeType;
   const mimeAllowed = await isMimeTypeAllowed(mimeType);
   if (!mimeAllowed) {
-    // Geçersiz tür → dosyayı sil
-    try { await fs.promises.unlink(storagePath); } catch { /* ignore */ }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     throw new Error(`File type "${mimeType}" is not allowed`);
   }
 
   // -----------------------------------------------------------------------
-  // Dosya boyutunu al
+  // Storage key + backend seç
   // -----------------------------------------------------------------------
-  const stat = await fs.promises.stat(storagePath);
-  const fileSize = stat.size;
+  const ext = path.extname(filename) || '';
+  const storageKey = fileId + ext;
+  const provider = await storage.getDefaultProvider();
+  const storageBackend = provider.name;
+
+  // -----------------------------------------------------------------------
+  // Chunk'ları birleştir ve backend'e yükle
+  // -----------------------------------------------------------------------
+  let totalBytes = 0;
+
+  if (storageBackend === 'local') {
+    // Local: chunk'ları doğrudan hedef dosyaya birleştir (provider.putObject
+    // local provider için Buffer bekler — burada stream ile dosyaya yazıp
+    // provider'a path üzerinden yüklemek yerine, direkt local dosya yazımı
+    // yapmak daha verimli. Bu yüzden local provider'ın uploadsDir'ine yaz.)
+    const targetPath = path.join(provider.uploadsDir, storageKey);
+    const writeStream = fs.createWriteStream(targetPath);
+
+    for (let i = 0; i < metadata.totalChunks; i++) {
+      const chunkPath = path.join(dir, `chunk_${i}`);
+      if (!fs.existsSync(chunkPath)) {
+        writeStream.destroy();
+        try { fs.unlinkSync(targetPath); } catch { /* ignore */ }
+        throw new Error(`Missing chunk ${i}. Upload cannot be completed.`);
+      }
+      const chunkData = await fs.promises.readFile(chunkPath);
+      writeStream.write(chunkData);
+      totalBytes += chunkData.length;
+    }
+
+    await new Promise((resolve, reject) => {
+      writeStream.end((err) => err ? reject(err) : resolve());
+    });
+  } else {
+    // Cloud: önce chunk'ları geçici birleştirme dosyasında topla, sonra
+    // bucket'a stream ile putObject. (ReadStream, provider.putObject
+    // S3-uyumlu provider'da lib-storage Upload ile multipart yükler.)
+    const assembledTmpPath = path.join(dir, '_assembled');
+    const writeStream = fs.createWriteStream(assembledTmpPath);
+
+    for (let i = 0; i < metadata.totalChunks; i++) {
+      const chunkPath = path.join(dir, `chunk_${i}`);
+      if (!fs.existsSync(chunkPath)) {
+        writeStream.destroy();
+        throw new Error(`Missing chunk ${i}. Upload cannot be completed.`);
+      }
+      const chunkData = await fs.promises.readFile(chunkPath);
+      writeStream.write(chunkData);
+      totalBytes += chunkData.length;
+    }
+
+    await new Promise((resolve, reject) => {
+      writeStream.end((err) => err ? reject(err) : resolve());
+    });
+
+    // Stream ile bucket'a yükle
+    const readStream = fs.createReadStream(assembledTmpPath);
+    try {
+      await provider.putObject(storageKey, readStream, { contentType: mimeType });
+    } finally {
+      readStream.destroy();
+      try { await fs.promises.unlink(assembledTmpPath); } catch { /* ignore */ }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Dosya boyutu kontrolü (toplam byte)
+  // -----------------------------------------------------------------------
+  const fileSize = totalBytes;
+  const sizeCheck = await validateFileSize(fileSize);
+  if (!sizeCheck.valid) {
+    // Limit aşımı → upload'u geri al
+    try { await provider.deleteObject(storageKey); } catch { /* ignore */ }
+    throw new Error(`Total file size exceeds maximum allowed size of ${sizeCheck.maxSizeMB} MB`);
+  }
 
   // -----------------------------------------------------------------------
   // Expire süresi kontrolü
@@ -253,7 +300,7 @@ async function finalizeUpload(fileId, dir, metadata) {
   const finalExpireHours = Math.min(expireHours || 1, maxExpireHours);
 
   // -----------------------------------------------------------------------
-  // Metadata'yı PG'ye Yaz
+  // Metadata'yı PG'ye Yaz (storage_backend + storage_key)
   // -----------------------------------------------------------------------
   const expireAt = new Date(Date.now() + finalExpireHours * 60 * 60 * 1000).toISOString();
   // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
@@ -262,9 +309,9 @@ async function finalizeUpload(fileId, dir, metadata) {
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,
-                        storage_path, direct_url, expire_at, is_encrypted,
+                        storage_backend, storage_key, direct_url, expire_at, is_encrypted,
                         encryption_iv, encryption_salt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       fileId,
@@ -273,7 +320,8 @@ async function finalizeUpload(fileId, dir, metadata) {
       filename,
       fileSize,
       mimeType,
-      storagePath,
+      storageBackend,
+      storageKey,
       directUrl,
       expireAt,
       isEncrypted,
@@ -287,9 +335,10 @@ async function finalizeUpload(fileId, dir, metadata) {
   // -----------------------------------------------------------------------
   // Image dosyaları için thumbnail üret (preview için compressed kopya).
   // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
+  // Thumbnail her zaman local diskte; cloud kaynak için buffer çekip sharp'a veririz.
   // -----------------------------------------------------------------------
   try {
-    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, fileSize);
+    await maybeGenerateThumbnail(fileId, storageBackend, storageKey, mimeType, isEncrypted, fileSize);
   } catch (err) {
     console.error(`[ChunkUpload] Thumbnail generation failed for ${fileId}:`, err.message);
   }
