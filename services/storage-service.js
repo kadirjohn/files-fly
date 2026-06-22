@@ -10,6 +10,9 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
+// Thumbnail cache dizini — admin image preview için küçültülmüş imajlar burada saklanır.
+// Docker'da /data/thumbs, local geliştirmede uploads dizininin yanında ./thumbs
+const THUMBS_DIR = process.env.THUMBS_DIR || (UPLOADS_DIR === '/data/uploads' ? '/data/thumbs' : path.join(UPLOADS_DIR, '..', 'thumbs'));
 
 // =========================================================================
 // Temel İşlemler
@@ -112,6 +115,45 @@ async function ensureUploadDir() {
   }
 }
 
+// =========================================================================
+// Thumbnail Dizini Yönetimi (Admin Image Preview)
+// =========================================================================
+
+/**
+ * Thumbnail cache dizininin var olduğundan emin olur.
+ */
+async function ensureThumbsDir() {
+  if (!fs.existsSync(THUMBS_DIR)) {
+    fs.mkdirSync(THUMBS_DIR, { recursive: true });
+    console.log(`[Storage] Created thumbs directory: ${THUMBS_DIR}`);
+  }
+}
+
+/**
+ * Bir dosya ID'si için thumbnail dosya yolunu döndürür.
+ * Tüm thumbnail'lar JPEG formatında ve .jpg uzantılı saklanır (küçük boyut).
+ * @param {string} fileId - Dosya UUID'si
+ * @returns {string} - Örn: /data/thumbs/abc-123.jpg
+ */
+function getThumbPath(fileId) {
+  return path.join(THUMBS_DIR, `${fileId}.jpg`);
+}
+
+/**
+ * Thumbnail cache'ini temizler (dosya silindiğinde çağrılır).
+ * @param {string} fileId
+ */
+async function deleteThumb(fileId) {
+  const thumbPath = getThumbPath(fileId);
+  try {
+    await fs.promises.unlink(thumbPath);
+    return true;
+  } catch (err) {
+    if (err.code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 /**
  * Upload dizinindeki toplam dosya boyutunu hesaplar.
  * @returns {Promise<number>} - Byte cinsinden
@@ -151,4 +193,8 @@ module.exports = {
   ensureUploadDir,
   getTotalUploadSize,
   UPLOADS_DIR,
+  THUMBS_DIR,
+  ensureThumbsDir,
+  getThumbPath,
+  deleteThumb,
 };

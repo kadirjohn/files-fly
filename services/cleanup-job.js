@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
 const { getConfig } = require('./config-service');
+const { deleteThumb } = require('./storage-service');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
 
@@ -71,6 +72,13 @@ async function runCleanup() {
         if (file.storage_path && fs.existsSync(file.storage_path)) {
           await fs.promises.unlink(file.storage_path);
           freedBytes += parseInt(file.file_size) || 0;
+        }
+
+        // Thumbnail cache'ini de temizle (image dosyaları için)
+        try {
+          await deleteThumb(file.id);
+        } catch (err) {
+          // Thumbnail yoksa veya silinemezse kritik değil
         }
 
         // PG'den sil

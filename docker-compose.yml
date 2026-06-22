@@ -25,6 +25,7 @@ services:
       ADMIN_PASSWORD: admin123                 # CHANGE THIS!
     volumes:
       - uploads_data:/data/uploads
+      - thumbs_data:/data/thumbs
     networks:
       - filesfly-net
 
@@ -55,6 +56,7 @@ services:
 volumes:
   pgdata:
   uploads_data:
+  thumbs_data:
 
 networks:
   filesfly-net:

@@ -21,8 +21,8 @@ COPY routes/ ./routes/
 COPY migrations/ ./migrations/
 COPY public/ ./public/
 
-# Create upload directory and set ownership
-RUN mkdir -p /data/uploads && chown -R node:node /data/uploads /usr/src/app
+# Create upload + thumbnail directories and set ownership
+RUN mkdir -p /data/uploads /data/thumbs && chown -R node:node /data/uploads /data/thumbs /usr/src/app
 
 # Switch to non-root user (already exists in base image)
 USER node

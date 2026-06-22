@@ -1,25 +1,39 @@
 /**
  * preview-service.js — Admin Dosya Önizleme Servisi
- * 
+ *
  * MIME type'a göre dosya içeriğini önizleme için hazırlar:
  * - text/* → içerik okur, ilk 100KB döndürür
- * - image/* → base64 thumbnail (ilk 500KB)
+ * - image/* → direct URL (thumbnail) — sharp ile küçültülmüş JPEG, diske cache'lenir
  * - video/*, audio/* → direct URL (stream)
  * - application/pdf → direct URL
  * - Diğer → "Preview not available"
+ *
+ * ÖNEMLİ: Image preview artık base64 data URI döndürmüyor (7MB foto → 9.3MB
+ * base64 string JSON içinde → kırık görüntü + bellek tüketimi). Bunun yerine
+ * thumbnail URL döndürülür; tarayıcı streaming ile düzgün yükler.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
-const { fileExists, readFile } = require('./storage-service');
+const { fileExists, ensureThumbsDir, getThumbPath } = require('./storage-service');
+
+// sharp lazy-load — bağımlılık yoksa bile text/video/pdf preview çalışmaya devam etsin
+let sharp = null;
+try {
+  sharp = require('sharp');
+} catch (err) {
+  console.warn('[Preview] sharp module not available — image thumbnails disabled.');
+}
 
 // =========================================================================
 // Preview Limitleri
 // =========================================================================
 
 const TEXT_PREVIEW_MAX = 100 * 1024;  // 100KB
-const IMAGE_PREVIEW_MAX = 500 * 1024; // 500KB
+const THUMB_MAX_WIDTH = 800;          // Thumbnail maksimum genişlik (px)
+const THUMB_MAX_HEIGHT = 600;         // Thumbnail maksimum yükseklik (px)
+const THUMB_QUALITY = 80;             // JPEG kalitesi (1-100)
 
 // =========================================================================
 // Ana Preview İşlemi
@@ -67,7 +81,7 @@ async function getPreview(fileId) {
     return previewText(file);
   }
 
-  // Resim dosyaları → base64 thumbnail
+  // Resim dosyaları → direct URL (sharp ile thumbnail, diske cache'lenir)
   if (mimeType.startsWith('image/')) {
     return previewImage(file);
   }
@@ -131,40 +145,84 @@ async function previewText(file) {
 }
 
 // =========================================================================
-// Image Preview
+// Image Preview — Sharp Thumbnail (cache'li)
 // =========================================================================
 
+/**
+ * Resim dosyası için preview metadata döndürür.
+ * Artık base64 data URI döndürmüyor — bunun yerine thumbnail ve full URL döndürür.
+ * Thumbnail, sharp ile küçültülüp /data/thumbs/ altında cache'lenir.
+ *
+ * Tarayıcı <img src="/api/admin/files/:id/preview-img"> ile streaming yükler.
+ * "Tam çözünürlük" için full_url (/api/files/:id/dl) gösterilir.
+ */
 async function previewImage(file) {
-  try {
-    // İlk 500KB'ı oku (thumbnail için yeterli)
-    const buffer = file.file_size <= IMAGE_PREVIEW_MAX
-      ? await readFile(file.storage_path)
-      : await readFilePartial(file.storage_path, IMAGE_PREVIEW_MAX);
-
-    const base64 = buffer.toString('base64');
-    const dataUri = `data:${file.mime_type};base64,${base64}`;
-
+  // sharp yoksa fallback: direct URL (tam çözünürlük, thumbnail yok)
+  if (!sharp) {
     return {
       type: 'image',
       mime_type: file.mime_type,
       filename: file.filename,
-      content: dataUri,
+      thumbnail_url: null,       // thumbnail kullanılamıyor
+      full_url: `/api/files/${file.id}/dl`,
+      content: null,
       total_size: file.file_size,
     };
-  } catch (err) {
-    return { type: 'error', content: `Error reading image: ${err.message}` };
   }
+
+  // Thumbnail'i üret/cache'den al (endpoint çağrıldığında lazım olacak)
+  let thumbReady = true;
+  try {
+    await generateThumbnail(file);
+  } catch (err) {
+    console.error(`[Preview] Thumbnail generation failed for ${file.id}:`, err.message);
+    thumbReady = false;
+  }
+
+  return {
+    type: 'image',
+    mime_type: file.mime_type,
+    filename: file.filename,
+    thumbnail_url: thumbReady ? `/api/admin/files/${file.id}/preview-img` : null,
+    full_url: `/api/files/${file.id}/dl`,
+    content: null,
+    total_size: file.file_size,
+  };
 }
 
 /**
- * Dosyanın ilk N byte'ını okur.
+ * Sharp ile thumbnail üretir ve diske cache'ler.
+ * Eğer thumbnail zaten varsa (cache hit) tekrar üretmez.
+ *
+ * Strateji:
+ *   - Maksimum 800x600 px, en-boy oranını korur (fit: inside)
+ *   - JPEG formatı, kalite 80 (küçük boyut, hızlı yükleme)
+ *   - /data/thumbs/:fileId.jpg yolunda saklanır
+ *
+ * @param {Object} file - { id, storage_path, mime_type }
+ * @returns {Promise<string>} - Thumbnail dosya yolu
  */
-async function readFilePartial(storagePath, maxBytes) {
-  const fd = await fs.promises.open(storagePath, 'r');
-  const buffer = Buffer.alloc(maxBytes);
-  const { bytesRead } = await fd.read(buffer, 0, maxBytes, 0);
-  await fd.close();
-  return buffer.slice(0, bytesRead);
+async function generateThumbnail(file) {
+  if (!sharp) throw new Error('sharp not available');
+
+  await ensureThumbsDir();
+  const thumbPath = getThumbPath(file.id);
+
+  // Cache hit — thumbnail zaten var
+  if (await fileExists(thumbPath)) {
+    return thumbPath;
+  }
+
+  // sharp ile küçült + JPEG'e çevir
+  await sharp(file.storage_path)
+    .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, {
+      fit: 'inside',       // En-boy oranını koru, sığdır
+      withoutEnlargement: true,  // Küçük resimleri büyütme
+    })
+    .jpeg({ quality: THUMB_QUALITY })
+    .toFile(thumbPath);
+
+  return thumbPath;
 }
 
 // =========================================================================
@@ -196,4 +254,4 @@ function isTextMime(mimeType) {
 // Export
 // =========================================================================
 
-module.exports = { getPreview };
+module.exports = { getPreview, generateThumbnail };

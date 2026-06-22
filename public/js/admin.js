@@ -398,7 +398,22 @@ async function openPreview(fileId, filename) {
         break;
 
       case 'image':
-        DOM.previewContent.innerHTML = `<img src="${data.content}" alt="${escapeHtml(filename)}">`;
+        // Thumbnail (sharp ile küçültülmüş) + tam çözünürlük linki
+        if (data.thumbnail_url) {
+          DOM.previewContent.innerHTML = `
+            <a href="${data.full_url}" target="_blank" rel="noopener" title="Tam çözünürlük aç">
+              <img src="${data.thumbnail_url}" alt="${escapeHtml(filename)}" style="max-width:100%;border-radius:8px;cursor:zoom-in;">
+            </a>
+            <p class="text-muted text-xs mt-1">📋 Thumbnail gösteriliyor — tam çözünürlük için tıkla (${formatSize(parseInt(data.total_size))})</p>
+          `;
+        } else {
+          // sharp yoksa fallback: doğrudan tam dosya
+          DOM.previewContent.innerHTML = `
+            <a href="${data.full_url}" target="_blank" rel="noopener">
+              <img src="${data.full_url}" alt="${escapeHtml(filename)}" style="max-width:100%;border-radius:8px;">
+            </a>
+          `;
+        }
         break;
 
       case 'media':

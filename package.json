@@ -8,7 +8,8 @@
     "migrate": "node services/database.js --migrate"
   },
   "dependencies": {
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "sharp": "^0.33.5"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -17,8 +17,8 @@
 const { addRoute, sendJSON, sendError } = require('../server');
 const { adminAuthMiddleware } = require('../middleware/auth');
 const { query } = require('../services/database');
-const { getPreview } = require('../services/preview-service');
-const { deleteFile, fileExists } = require('../services/storage-service');
+const { getPreview, generateThumbnail } = require('../services/preview-service');
+const { deleteFile, fileExists, readFileStream, getThumbPath, deleteThumb } = require('../services/storage-service');
 const { getAllConfig, updateConfig, invalidateCache } = require('../services/config-service');
 const { banIP, unbanIP, unbanIPByHash, listBannedIPs } = require('../services/ip-service');
 
@@ -185,6 +185,65 @@ addAdminRoute('GET', '/api/admin/files/:id/preview', async (req, res, params, bo
 });
 
 // =========================================================================
+// GET /api/admin/files/:id/preview-img — Image Thumbnail (streaming)
+// =========================================================================
+// sharp ile üretilmiş küçültülmüş JPEG thumbnail'ını stream eder.
+// /data/thumbs/:id.jpg'de cache'lenir. Eğer yoksa anında üretilir.
+// Admin panelinde <img src=".../preview-img"> ile yüklenir — base64 yerine.
+
+addAdminRoute('GET', '/api/admin/files/:id/preview-img', async (req, res, params, body) => {
+  try {
+    const fileId = params.id;
+
+    // Metadata'yı al (sadece image dosyaları için thumbnail)
+    const result = await query(
+      `SELECT id, filename, file_size, mime_type, storage_path, expire_at
+       FROM files WHERE id = $1`,
+      [fileId]
+    );
+
+    if (result.rows.length === 0) {
+      return sendError(res, 404, 'File not found');
+    }
+
+    const file = result.rows[0];
+
+    // Süresi dolmuş mu?
+    if (new Date(file.expire_at) < new Date()) {
+      return sendError(res, 410, 'File has expired');
+    }
+
+    // Sadece image/* için thumbnail — diğer türlere 400
+    if (!file.mime_type || !file.mime_type.startsWith('image/')) {
+      return sendError(res, 400, 'Thumbnail only available for images');
+    }
+
+    // Thumbnail'ı üret/cache'den al
+    await generateThumbnail(file);
+    const thumbPath = getThumbPath(file.id);
+
+    // Thumbnail diskte var mı kontrol et (sharp başarısız olmuş olabilir)
+    if (!(await fileExists(thumbPath))) {
+      return sendError(res, 500, 'Failed to generate thumbnail');
+    }
+
+    // Stream et
+    const { stream, size } = await readFileStream(thumbPath);
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': size,
+      'Cache-Control': 'public, max-age=86400', // 24 saat cache (değişmez)
+    });
+    stream.pipe(res);
+  } catch (err) {
+    console.error('[Admin] Thumbnail error:', err.message);
+    if (!res.headersSent) {
+      sendError(res, 500, 'Failed to generate thumbnail');
+    }
+  }
+});
+
+// =========================================================================
 // DELETE /api/admin/files/:id — Dosya Silme
 // =========================================================================
 
@@ -211,6 +270,13 @@ addAdminRoute('DELETE', '/api/admin/files/:id', async (req, res, params, body) =
       } catch (err) {
         console.error(`[Admin] Error deleting file from disk: ${file.storage_path}`, err.message);
       }
+    }
+
+    // Thumbnail cache'ini de temizle (varsa)
+    try {
+      await deleteThumb(fileId);
+    } catch (err) {
+      // Thumbnail yoksa veya silinemezse kritik değil
     }
 
     // PG'den sil
