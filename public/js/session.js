@@ -60,23 +60,28 @@ let countdownIntervals = [];
   countdownIntervals = [];
 
   try {
+    dbg.info('session', `GET /api/session/files?page=${page}&limit=20`);
     const resp = await fetch(`/api/session/files?page=${page}&limit=20`);
 
     if (!resp.ok) {
       if (resp.status === 401) {
+        dbg.warn('session', '401 — session recreating');
         await fetch('/api/session', { method: 'POST' });
         return loadFiles(page);
       }
+      dbg.error('session', `HTTP ${resp.status}`);
       throw new Error(`HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
     currentPage = data.page;
     totalPages = data.pages;
+    dbg.info('session', `✓ Files loaded`, { count: data.files.length, page: data.page, pages: data.pages });
 
     DOM.loadingState.classList.add('hidden');
 
     if (data.files.length === 0) {
+      dbg.log('session', 'No files (empty session)');
       DOM.emptyState.classList.remove('hidden');
       return;
     }
@@ -90,6 +95,7 @@ let countdownIntervals = [];
       DOM.nextPageBtn.disabled = currentPage >= totalPages;
     }
   } catch (err) {
+    dbg.error('session', 'Files loading error', err);
     console.error('[Session] Dosyalar yüklenirken hata:', err);
     DOM.loadingState.classList.add('hidden');
     DOM.errorState.classList.remove('hidden');

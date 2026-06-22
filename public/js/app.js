@@ -256,10 +256,18 @@ DOM.uploadBtn.addEventListener('click', startUpload);
 async function startUpload() {
   if (!selectedFile) return;
 
+  dbg.group('upload', `Upload starting: ${selectedFile.name}`, {
+    name: selectedFile.name,
+    size: selectedFile.size,
+    sizeFormatted: formatSize(selectedFile.size),
+    type: selectedFile.type,
+  });
+
   // Session cookie kontrolü — yoksa önce session oluştur
   try {
     await ensureSession();
   } catch (err) {
+    dbg.error('session', 'Session creation failed', err);
     showToast(t('sessionError'), 'error');
     return;
   }
@@ -273,14 +281,17 @@ async function startUpload() {
 
   if (password && password.length > 0) {
     try {
+      dbg.info('encrypt', 'Encrypting file (AES-256-GCM)', { passwordLen: password.length });
       showToast(t('encrypting'), 'info');
       const encrypted = await encryptFile(selectedFile, password);
       fileToUpload = encrypted.ciphertext;
       encryptionIV = encrypted.iv;
       encryptionSalt = encrypted.salt;
       originalMimeType = selectedFile.type || 'application/octet-stream';
+      dbg.info('encrypt', '✓ Encryption complete', { encryptedSize: fileToUpload.size });
       showToast(t('encrypted'), 'success');
     } catch (err) {
+      dbg.error('encrypt', 'Encryption error', err);
       console.error('[Crypto] Encryption error:', err);
       showToast(t('encryptError'), 'error');
       return;
@@ -288,10 +299,13 @@ async function startUpload() {
   }
 
   // Dosya boyutuna göre tek seferde veya chunked upload
-  if (fileToUpload.size <= chunkSizeBytes) {
+  const chunkSize = chunkSizeBytes || (5 * 1024 * 1024);
+  if (fileToUpload.size <= chunkSize) {
+    dbg.info('upload', 'Mode: Single upload (small file)', { size: fileToUpload.size, threshold: chunkSize });
     chunkedMode = false;
     doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType);
   } else {
+    dbg.info('upload', 'Mode: Chunked upload (large file)', { size: fileToUpload.size, threshold: chunkSize });
     chunkedMode = true;
     doChunkedUpload(fileToUpload, password, encryptionIV, encryptionSalt, originalMimeType);
   }
@@ -299,11 +313,19 @@ async function startUpload() {
 
 async function ensureSession() {
   // Cookie'de session var mı?
-  if (getCookie('filesfly_sid')) return;
+  if (getCookie('filesfly_sid')) {
+    dbg.log('session', 'Session cookie present, no need to create new session');
+    return;
+  }
 
+  dbg.info('session', 'No session, POST /api/session creating...');
   // POST /api/session
   const resp = await fetch('/api/session', { method: 'POST' });
-  if (!resp.ok) throw new Error('Session creation failed');
+  if (!resp.ok) {
+    dbg.error('session', 'Session creation failed', { status: resp.status });
+    throw new Error('Session creation failed');
+  }
+  dbg.info('session', '✓ Session created (cookie set)');
 }
 
 // =========================================================================
@@ -336,12 +358,22 @@ function doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, or
     formData.append('mime_type', originalMimeType);
   }
 
+  dbg.info('upload', 'XHR POST /api/upload starting', {
+    fileName: selectedFile.name,
+    size: fileToUpload.size,
+    encrypted: !!password,
+    expire: DOM.expireSelect.value,
+  });
+
   // XHR ile upload (progress takibi için)
   xhr = new XMLHttpRequest();
 
   xhr.upload.addEventListener('progress', (e) => {
     if (e.lengthComputable) {
       updateProgress(e.loaded, e.total);
+      // Her %25'de bir debug log (spam önle)
+      const pct = Math.round((e.loaded / e.total) * 100);
+      if (pct % 25 === 0) dbg.log('upload', `Progress: ${pct}%`, { loaded: e.loaded, total: e.total });
     }
   });
 
@@ -349,18 +381,22 @@ function doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, or
     const status = xhr.status;
     const responseText = xhr.responseText;
     xhr = null;
+    dbg.info('upload', `XHR response: HTTP ${status}`, { responseLen: responseText.length });
     if (status >= 200 && status < 300) {
       try {
         const result = JSON.parse(responseText);
         handleUploadSuccess(result);
       } catch {
+        dbg.error('upload', 'Response JSON parse failed', responseText.substring(0, 200));
         handleUploadError(t('serverResponseError'));
       }
     } else {
       try {
         const err = JSON.parse(responseText);
+        dbg.error('upload', 'Server error', { status, error: err.error });
         handleUploadError(err.error || `Hata: ${status}`);
       } catch {
+        dbg.error('upload', 'Server error (non-JSON)', { status, body: responseText.substring(0, 200) });
         handleUploadError(`Sunucu hatası: ${status}`);
       }
     }
@@ -368,11 +404,13 @@ function doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, or
 
   xhr.addEventListener('error', () => {
     xhr = null;
+    dbg.error('upload', 'XHR network error (connection error)');
     handleUploadError(t('connectionError'));
   });
 
   xhr.addEventListener('abort', () => {
     xhr = null;
+    dbg.warn('upload', 'XHR aborted (user)');
     showStep('select');
     showToast(t('uploadCancelled'), 'info');
   });
@@ -381,6 +419,7 @@ function doSingleUpload(fileToUpload, password, encryptionIV, encryptionSalt, or
   uploadStartTime = Date.now();
   lastLoaded = 0;
   lastTime = uploadStartTime;
+  dbg.time('upload', 'XHR upload');
   xhr.send(formData);
 }
 
@@ -412,10 +451,18 @@ async function doChunkedUpload(fileToUpload, password, encryptionIV, encryptionS
   lastLoaded = 0;
   lastTime = uploadStartTime;
 
+  dbg.info('chunk', 'Chunked upload initializing', {
+    fileId,
+    totalChunks,
+    chunkSize: chunkSizeBytes,
+    totalSize: fileToUpload.size,
+  });
+
   // -----------------------------------------------------------------------
   // Resume kontrolü: daha önce başlanmış upload var mı?
   // -----------------------------------------------------------------------
   try {
+    dbg.log('chunk', `Resume check: GET /api/upload/chunk/${fileId}/status`);
     const statusResp = await fetch(`/api/upload/chunk/${fileId}/status`, {
       signal: abortController.signal,
     });
@@ -424,6 +471,7 @@ async function doChunkedUpload(fileToUpload, password, encryptionIV, encryptionS
       if (status.exists && status.received_chunks > 0) {
         // Kaldığı yerden devam et
         uploadedChunks = status.received_chunks;
+        dbg.info('chunk', `Resume: ${uploadedChunks}/${totalChunks} chunks already uploaded, resuming`);
         // Alınmış chunk'ların toplam boyutunu hesapla
         const lastChunkIndex = uploadedChunks - 1;
         const fullChunkSize = chunkSizeBytes;
@@ -432,35 +480,54 @@ async function doChunkedUpload(fileToUpload, password, encryptionIV, encryptionS
           : Math.min(uploadedChunks * fullChunkSize, fileToUpload.size);
         updateChunkProgress(chunkBytesUploaded, fileToUpload.size);
         showToast(`${uploadedChunks}/${totalChunks} ${t('chunkResume')}`, 'info');
+      } else {
+        dbg.log('chunk', 'Resume: no previous upload, starting fresh');
       }
     }
   } catch (err) {
-    if (err.name === 'AbortError') return;
-    // Status alınamazsa sıfırdan başla
+    if (err.name === 'AbortError') {
+      dbg.warn('chunk', 'Resume check aborted');
+      return;
+    }
+    dbg.warn('chunk', 'Resume status fetch failed, starting fresh', err.message);
   }
 
   // -----------------------------------------------------------------------
   // Chunk'ları sırayla gönder
   // -----------------------------------------------------------------------
+  dbg.group('chunk', `Chunk loop: ${uploadedChunks} → ${totalChunks}`);
   for (let i = uploadedChunks; i < totalChunks; i++) {
-    if (abortController.signal.aborted) break;
+    if (abortController.signal.aborted) {
+      dbg.warn('chunk', `Loop aborted (chunk ${i})`);
+      break;
+    }
 
     const start = i * chunkSizeBytes;
     const end = Math.min(start + chunkSizeBytes, fileToUpload.size);
     const chunk = fileToUpload.slice(start, end);
 
+    dbg.log('chunk', `Chunk ${i + 1}/${totalChunks} sending`, { size: chunk.size });
     const success = await uploadChunk(i, chunk, password, encryptionIV, encryptionSalt, originalMimeType);
-    if (!success) return; // Hata oluştu, handleUploadError zaten çağrıldı
+    if (!success) {
+      dbg.error('chunk', `Chunk ${i + 1}/${totalChunks} failed, upload stopped`);
+      dbg.groupEnd('chunk');
+      return; // Hata oluştu, handleUploadError zaten çağrıldı
+    }
 
     uploadedChunks++;
     chunkBytesUploaded += chunk.size;
     updateChunkProgress(chunkBytesUploaded, fileToUpload.size);
+    dbg.log('chunk', `✓ Chunk ${i + 1}/${totalChunks} complete (${Math.round((uploadedChunks / totalChunks) * 100)}%)`);
   }
+  dbg.groupEnd('chunk');
 
-  if (abortController.signal.aborted) return;
+  // abortController, son chunk tamamlandığında uploadChunk içinde null'a set edilir.
+  // Bu yüzden null check yapmadan .signal'e erişemeyiz (TypeError: null.signal).
+  if (abortController && abortController.signal.aborted) return;
 
   // Tüm chunk'lar gönderildi — son chunk'ın response'u zaten complete:true döndü
   // handleUploadSuccess son chunk'ta çağrıldı
+  dbg.info('chunk', 'Chunked upload loop done — handleUploadSuccess called on last chunk');
 }
 
 /**
@@ -494,6 +561,7 @@ async function uploadChunk(chunkIndex, chunk, password, encryptionIV, encryption
 
   while (retries <= maxRetries) {
     try {
+      dbg.log('chunk', `Chunk ${chunkIndex + 1}/${totalChunks} → POST /api/upload/chunk (attempt ${retries + 1})`);
       const resp = await fetch('/api/upload/chunk', {
         method: 'POST',
         body: formData,
@@ -502,7 +570,8 @@ async function uploadChunk(chunkIndex, chunk, password, encryptionIV, encryption
 
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        handleUploadError(errData.error || `Chunk yükleme hatası: ${resp.status}`);
+        dbg.error('chunk', `Chunk ${chunkIndex + 1} HTTP ${resp.status}`, errData);
+        handleUploadError(errData.error || `Chunk upload error: ${resp.status}`);
         return false;
       }
 
@@ -510,6 +579,7 @@ async function uploadChunk(chunkIndex, chunk, password, encryptionIV, encryption
 
       if (result.complete) {
         // Son chunk — upload tamamlandı
+        dbg.info('chunk', `✓ Last chunk (${chunkIndex + 1}/${totalChunks}) — upload complete!`, { fileId: result.id, directUrl: result.direct_url });
         abortController = null;
         handleUploadSuccess(result);
       }
@@ -517,15 +587,18 @@ async function uploadChunk(chunkIndex, chunk, password, encryptionIV, encryption
       return true;
     } catch (err) {
       if (err.name === 'AbortError') {
+        dbg.warn('chunk', `Chunk ${chunkIndex + 1} aborted`);
         return false;
       }
 
       retries++;
       if (retries > maxRetries) {
+        dbg.error('chunk', `Chunk ${chunkIndex + 1} failed after ${maxRetries + 1} attempts`, err);
         handleUploadError(`${t('chunkFailed')} (${chunkIndex + 1}/${totalChunks})`);
         return false;
       }
 
+      dbg.warn('chunk', `Chunk ${chunkIndex + 1} error, ${retries}/${maxRetries} retry — waiting ${1000 * retries}ms`, err.message);
       // Retry öncesi kısa bekle
       await new Promise(r => setTimeout(r, 1000 * retries));
     }
@@ -615,6 +688,14 @@ DOM.cancelUploadBtn.addEventListener('click', () => {
 // =========================================================================
 
 function handleUploadSuccess(result) {
+  dbg.group('upload', '✓ Upload successful!', {
+    id: result.id,
+    filename: result.filename,
+    direct_url: result.direct_url,
+    preview_url: result.preview_url,
+    is_encrypted: result.is_encrypted,
+    expire_at: result.expire_at,
+  });
   showStep('success');
 
   // Linkleri göster — backend relative path döndürür, tam URL olarak göster
@@ -700,6 +781,7 @@ function generateQR(url) {
 // =========================================================================
 
 function handleUploadError(message) {
+  dbg.error('upload', '✕ Upload error', message);
   showStep('error');
   DOM.errorMessage.textContent = message;
 }

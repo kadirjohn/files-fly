@@ -154,33 +154,40 @@ DOM.loginBtn.addEventListener('click', async () => {
   const password = DOM.loginPassword.value;
 
   if (!username || !password) {
+    dbg?.warn('login', 'Boş alan — kullanıcı adı veya parola girilmedi');
     DOM.loginError.textContent = 'Kullanıcı adı ve parola gerekli.';
     DOM.loginError.classList.remove('hidden');
     return;
   }
 
+  dbg.info('login', 'Login attempt', { username });
   DOM.loginBtn.disabled = true;
   DOM.loginError.classList.add('hidden');
 
   try {
+    dbg.time('login', 'POST /api/admin/login');
     const resp = await fetch('/api/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
+    dbg.timeEnd('login', 'POST /api/admin/login');
 
     const data = await resp.json();
 
     if (!resp.ok) {
+      dbg.warn('login', 'Login rejected', { status: resp.status, error: data.error });
       DOM.loginError.textContent = data.error || 'Giriş başarısız.';
       DOM.loginError.classList.remove('hidden');
       return;
     }
 
+    dbg.info('login', '✓ Login successful', { username, tokenLen: data.token?.length });
     token = data.token;
     localStorage.setItem('filesfly_admin_token', token);
     showAdmin();
   } catch (err) {
+    dbg.error('login', 'Connection error', err);
     DOM.loginError.textContent = 'Bağlantı hatası.';
     DOM.loginError.classList.remove('hidden');
   } finally {
@@ -238,11 +245,18 @@ async function apiFetch(url, options = {}) {
     ...options.headers,
   };
 
+  const method = options.method || 'GET';
+  dbg.info('api', `→ ${method} ${url}`);
+  dbg.time('api', `${method} ${url}`);
   const resp = await fetch(url, { ...options, headers });
+  dbg.timeEnd('api', `${method} ${url}`);
 
   // HTTP 4xx/5xx durumlarını konsola yaz — hata ayıklama için görünür kalsın
   if (!resp.ok && resp.status !== 401) {
+    dbg.error('api', `← ${method} ${url} → HTTP ${resp.status}`);
     console.error(`[admin] ${options.method || 'GET'} ${url} → HTTP ${resp.status}`);
+  } else {
+    dbg.log('api', `← ${method} ${url} → HTTP ${resp.status}`);
   }
 
   if (resp.status === 401) {

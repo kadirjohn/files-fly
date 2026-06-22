@@ -71,10 +71,12 @@
 
   async function loadFile() {
     try {
+      dbg.info('download', `GET /api/files/${fileId}`, { isDownload });
       const resp = await fetch('/api/files/' + fileId);
 
       // 404 — dosya yok
       if (resp.status === 404) {
+        dbg.warn('download', 'File not found (404)');
         showError('Dosya Bulunamadı', 'Bu dosya mevcut değil veya zaten silinmiş olabilir.');
         return;
       }
@@ -82,20 +84,29 @@
       // 410 — süresi dolmuş
       if (resp.status === 410) {
         const data = await resp.json().catch(() => ({}));
+        dbg.warn('download', 'File expired (410)', data);
         showExpired(data.filename || 'Bilinmeyen dosya');
         return;
       }
 
       if (!resp.ok) {
+        dbg.error('download', `Server error HTTP ${resp.status}`);
         showError('Bir Sorun Oluştu', 'Sunucu hatası (HTTP ' + resp.status + '). Lütfen daha sonra tekrar deneyin.');
         return;
       }
 
       const meta = await resp.json();
       fileMeta = meta;
+      dbg.info('download', 'File metadata received', {
+        filename: meta.filename,
+        size: meta.size,
+        is_encrypted: meta.is_encrypted,
+        mime_type: meta.mime_type,
+      });
 
       // Şifresiz /files/:id/dl ise → direkt indirmeye yönlendir
       if (isDownload && !meta.is_encrypted) {
+        dbg.info('download', 'Unencrypted download — /dl redirect');
         window.location.href = '/api/files/' + fileId + '/dl';
         return;
       }
@@ -104,9 +115,11 @@
 
       // Şifreliyse parola gate'i aç
       if (meta.is_encrypted) {
+        dbg.info('decrypt', 'File encrypted — opening password gate');
         openPasswordGate();
       }
     } catch (err) {
+      dbg.error('download', 'loadFile network error', err);
       console.error('[file.js] loadFile error:', err);
       showError('Bağlantı Hatası', 'Sunucuya ulaşılamıyor. İnternet bağlantınızı kontrol edin.');
     }
