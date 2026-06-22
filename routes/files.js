@@ -8,8 +8,11 @@
 const { addRoute, sendJSON, sendError, serveStaticFile } = require('../server');
 const { serveDownload, getFileMetadata } = require('../services/download-service');
 const { generateThumbnail } = require('../services/preview-service');
-const { fileExists, readFileStream, getThumbPath } = require('../services/storage-service');
+const { fileExists, readFileStream, getThumbPath, getThumbFailMarkerPath } = require('../services/storage-service');
 const { query } = require('../services/database');
+
+// Thumbnail üretimi için kaynak dosya boyut limiti (preview-service ile aynı).
+const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
 
 // =========================================================================
 // GET /files/:id — Dosya Önizleme Sayfası (HTML)
@@ -118,9 +121,9 @@ addRoute('GET', '/api/files/:id/thumb', async (req, res, params, body) => {
   }
 
   try {
-    // Doğrudan metadata çek (storage_path gerekli)
+    // Doğrudan metadata çek (storage_path + file_size gerekli)
     const result = await query(
-      `SELECT id, mime_type, storage_path, is_encrypted, expire_at
+      `SELECT id, mime_type, storage_path, is_encrypted, expire_at, file_size
        FROM files WHERE id = $1`,
       [fileId]
     );
@@ -141,16 +144,27 @@ addRoute('GET', '/api/files/:id/thumb', async (req, res, params, body) => {
       return sendError(res, 404, 'Thumbnail only available for images');
     }
 
-    // Thumbnail cache'te var mı? Yoksa üret.
     const thumbPath = getThumbPath(fileId);
+    const failMarkerPath = getThumbFailMarkerPath(fileId);
+
+    // Negative cache hit — daha önce üretim başarısız oldu, sharp'ı tetikleme (DoS önlemi).
+    if (await fileExists(failMarkerPath)) {
+      return sendError(res, 404, 'Thumbnail not available');
+    }
+
+    // Thumbnail cache'te var mı? Yoksa üret.
     if (!(await fileExists(thumbPath))) {
+      // RAM koruması: 50MB'den büyük imajlar için on-demand üretim de yapılmaz.
+      if (file.file_size && file.file_size > THUMB_MAX_SRC_BYTES) {
+        return sendError(res, 404, 'Thumbnail not available (source too large)');
+      }
       try {
         await generateThumbnail({ id: fileId, storage_path: file.storage_path, mime_type: file.mime_type });
       } catch (genErr) {
         console.error('[Files] Thumbnail generation failed:', genErr.message);
       }
     }
-    // Hâlâ yoksa (sharp yok / decode hatası) → 404, frontend full /dl'ye düşer
+    // Hâlâ yoksa (sharp yok / decode hatası / negative cache) → 404, frontend full /dl'ye düşer
     if (!(await fileExists(thumbPath))) {
       return sendError(res, 404, 'Thumbnail not available');
     }

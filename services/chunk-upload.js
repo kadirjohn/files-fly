@@ -289,7 +289,7 @@ async function finalizeUpload(fileId, dir, metadata) {
   // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
   // -----------------------------------------------------------------------
   try {
-    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted);
+    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, fileSize);
   } catch (err) {
     console.error(`[ChunkUpload] Thumbnail generation failed for ${fileId}:`, err.message);
   }

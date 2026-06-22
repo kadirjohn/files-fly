@@ -18,7 +18,10 @@ const { addRoute, sendJSON, sendError } = require('../server');
 const { adminAuthMiddleware } = require('../middleware/auth');
 const { query } = require('../services/database');
 const { getPreview, generateThumbnail } = require('../services/preview-service');
-const { deleteFile, fileExists, readFileStream, getThumbPath, deleteThumb } = require('../services/storage-service');
+const { deleteFile, fileExists, readFileStream, getThumbPath, getThumbFailMarkerPath, deleteThumb } = require('../services/storage-service');
+
+// Thumbnail üretimi için kaynak dosya boyut limiti (preview-service ile aynı).
+const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
 const { getAllConfig, updateConfig, invalidateCache } = require('../services/config-service');
 const { banIP, unbanIP, unbanIPByHash, listBannedIPs } = require('../services/ip-service');
 
@@ -218,13 +221,29 @@ addAdminRoute('GET', '/api/admin/files/:id/preview-img', async (req, res, params
       return sendError(res, 400, 'Thumbnail only available for images');
     }
 
-    // Thumbnail'ı üret/cache'den al
-    await generateThumbnail(file);
     const thumbPath = getThumbPath(file.id);
+    const failMarkerPath = getThumbFailMarkerPath(file.id);
 
-    // Thumbnail diskte var mı kontrol et (sharp başarısız olmuş olabilir)
+    // Negative cache hit — daha önce üretim başarısız oldu (DoS önlemi).
+    if (await fileExists(failMarkerPath)) {
+      return sendError(res, 404, 'Thumbnail not available');
+    }
+
+    // RAM koruması: 50MB'den büyük imajlar için thumbnail üretme.
+    if (file.file_size && file.file_size > THUMB_MAX_SRC_BYTES) {
+      return sendError(res, 404, 'Thumbnail not available (source too large)');
+    }
+
+    // Thumbnail'ı üret/cache'den al (generateThumbnail negative cache marker yazar başarısız olursa)
+    try {
+      await generateThumbnail(file);
+    } catch (genErr) {
+      console.error('[Admin] Thumbnail generation failed:', genErr.message);
+    }
+
+    // Thumbnail diskte var mı kontrol et (sharp başarısız / negative cache / çok büyük)
     if (!(await fileExists(thumbPath))) {
-      return sendError(res, 500, 'Failed to generate thumbnail');
+      return sendError(res, 404, 'Thumbnail not available');
     }
 
     // Stream et

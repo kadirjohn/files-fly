@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
-const { fileExists, ensureThumbsDir, getThumbPath } = require('./storage-service');
+const { fileExists, ensureThumbsDir, ensureThumbSubDir, getThumbPath, getThumbFailMarkerPath } = require('./storage-service');
 
 // sharp lazy-load — bağımlılık yoksa bile text/video/pdf preview çalışmaya devam etsin
 let sharp = null;
@@ -34,6 +34,10 @@ const TEXT_PREVIEW_MAX = 100 * 1024;  // 100KB
 const THUMB_MAX_WIDTH = 800;          // Thumbnail maksimum genişlik (px)
 const THUMB_MAX_HEIGHT = 600;         // Thumbnail maksimum yükseklik (px)
 const THUMB_QUALITY = 80;             // JPEG kalitesi (1-100)
+// Kaynak dosya boyut limiti — bu değeri aşan imajlar için thumbnail üretilmez
+// (sharp'ın RAM tüketimini sınırlamak için). Frontend fallback olarak /dl kullanır.
+// 50MB: makul bir üst sınır — modern telefon fotoğrafları genelde <20MB.
+const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
 
 // =========================================================================
 // Ana Preview İşlemi
@@ -227,24 +231,43 @@ async function previewImage(file) {
 async function generateThumbnail(file) {
   if (!sharp) throw new Error('sharp not available');
 
-  await ensureThumbsDir();
   const thumbPath = getThumbPath(file.id);
+  const failMarkerPath = getThumbFailMarkerPath(file.id);
 
   // Cache hit — thumbnail zaten var
   if (await fileExists(thumbPath)) {
     return thumbPath;
   }
 
-  // sharp ile küçült + JPEG'e çevir
-  await sharp(file.storage_path)
-    .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, {
-      fit: 'inside',       // En-boy oranını koru, sığdır
-      withoutEnlargement: true,  // Küçük resimleri büyütme
-    })
-    .jpeg({ quality: THUMB_QUALITY })
-    .toFile(thumbPath);
+  // Negative cache hit — daha önce üretim başarısız oldu, tekrar deneme (DoS önlemi).
+  if (await fileExists(failMarkerPath)) {
+    throw new Error(`Thumbnail generation previously failed for ${file.id} (negative cache hit)`);
+  }
 
-  return thumbPath;
+  // Alt dizini oluştur (sub-directory hashing)
+  await ensureThumbSubDir(file.id);
+
+  // sharp ile küçült + JPEG'e çevir. Başarısız olursa negative cache marker yaz.
+  try {
+    await sharp(file.storage_path)
+      .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, {
+        fit: 'inside',       // En-boy oranını koru, sığdır
+        withoutEnlargement: true,  // Küçük resimleri büyütme
+      })
+      .jpeg({ quality: THUMB_QUALITY })
+      .toFile(thumbPath);
+    return thumbPath;
+  } catch (err) {
+    // Negative cache: 0 byte'lık .fail marker yaz ki sonraki istekler
+    // sharp'ı tekrar tetiklemesin (bozuk imaja sürekli istek = DoS).
+    try {
+      await fs.promises.writeFile(failMarkerPath, Buffer.alloc(0));
+    } catch (markerErr) {
+      // Marker yazılamazsa kritik değil — sadece logla
+      console.error(`[Preview] Failed to write negative cache marker for ${file.id}:`, markerErr.message);
+    }
+    throw err;
+  }
 }
 
 // =========================================================================
@@ -282,12 +305,19 @@ function isTextMime(mimeType) {
  * @param {boolean} isEncrypted
  * @returns {Promise<boolean>} - Thumbnail üretildiyse true
  */
-async function maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted) {
+async function maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, fileSizeBytes) {
   // Şifreli dosyaların içeriği ciphertext'tir → sharp decode edemez, atla.
   if (isEncrypted) return false;
   // Sadece image/* için thumbnail (diğer türler zaten indirilmeli).
   if (!mimeType || !mimeType.startsWith('image/')) return false;
   if (!sharp) return false;
+
+  // RAM koruması: 50MB'den büyük imajlar için thumbnail üretilmez.
+  // sharp bu boyutta anlık yüksek bellek tüketir; frontend /dl'ye düşer.
+  if (fileSizeBytes && fileSizeBytes > THUMB_MAX_SRC_BYTES) {
+    console.log(`[Preview] Skipping thumbnail for ${fileId}: source ${fileSizeBytes} bytes > ${THUMB_MAX_SRC_BYTES} limit`);
+    return false;
+  }
 
   try {
     await generateThumbnail({ id: fileId, storage_path: storagePath, mime_type: mimeType });

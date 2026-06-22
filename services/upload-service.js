@@ -298,7 +298,7 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   // Hata olması kritik değil — preview fallback olarak full URL kullanır.
   // -----------------------------------------------------------------------
   try {
-    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted);
+    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted, file.data.length);
   } catch (err) {
     console.error(`[Upload] Thumbnail generation failed for ${fileId}:`, err.message);
   }

@@ -116,11 +116,18 @@ async function ensureUploadDir() {
 }
 
 // =========================================================================
-// Thumbnail Dizini Yönetimi (Admin Image Preview)
+// Thumbnail Dizini Yönetimi (Image Preview)
 // =========================================================================
+// ÖNEMLİ: Thumbnail'lar artık tek bir düz klasörde DEĞİL, dosya ID'sinin
+// ilk hex karakterlerine göre alt klasörlenmiş olarak saklanır (sub-directory
+// hashing). Bu, 10k+ dosyada ext4/APFS'in readdir/stat I/O darboğazını önler.
+//   fileId = "a1b2c3d4-..."
+//   → /data/thumbs/a1/b2/a1b2c3d4-....jpg     (256×256 = 65,536 bucket)
+//   → /data/thumbs/a1/b2/a1b2c3d4-....fail    (negative cache marker)
 
 /**
- * Thumbnail cache dizininin var olduğundan emin olur.
+ * Thumbnail cache dizininin var olduğundan emin olur (en üst seviye).
+ * Alt klasörler generateThumbnail sırasında { recursive: true } ile oluşturulur.
  */
 async function ensureThumbsDir() {
   if (!fs.existsSync(THUMBS_DIR)) {
@@ -130,28 +137,76 @@ async function ensureThumbsDir() {
 }
 
 /**
- * Bir dosya ID'si için thumbnail dosya yolunu döndürür.
- * Tüm thumbnail'lar JPEG formatında ve .jpg uzantılı saklanır (küçük boyut).
- * @param {string} fileId - Dosya UUID'si
- * @returns {string} - Örn: /data/thumbs/abc-123.jpg
+ * Dosya ID'sinden thumbnail alt dizin yolunu hesaplar (sub-directory hashing).
+ * İlk 2 ve sonraki 2 hex karakteri kullanılır: /data/thumbs/<hex0-1>/<hex2-3>/
+ *
+ * @param {string} fileId - Dosya UUID'si (örn: "a1b2c3d4-...")
+ * @returns {{ dir: string, prefix: string }} - { dir: alt dizin yolu, prefix: "a1/b2" }
  */
-function getThumbPath(fileId) {
-  return path.join(THUMBS_DIR, `${fileId}.jpg`);
+function getThumbSubDir(fileId) {
+  const hex = String(fileId || '').replace(/-/g, '').toLowerCase();
+  const a = hex.substring(0, 2) || '00';
+  const b = hex.substring(2, 4) || '00';
+  return { dir: path.join(THUMBS_DIR, a, b), prefix: `${a}/${b}` };
 }
 
 /**
- * Thumbnail cache'ini temizler (dosya silindiğinde çağrılır).
+ * Thumbnail alt dizininin var olduğundan emin olur (thumbnail yazılmadan önce).
+ * @param {string} fileId - Alt dizini hesaplamak için
+ * @returns {Promise<string>} - Oluşturulan/olan dizin yolu
+ */
+async function ensureThumbSubDir(fileId) {
+  const { dir } = getThumbSubDir(fileId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+/**
+ * Bir dosya ID'si için thumbnail dosya yolunu döndürür (sub-directory hashed).
+ * JPEG formatında saklanır.
+ * @param {string} fileId - Dosya UUID'si
+ * @returns {string} - Örn: /data/thumbs/a1/b2/a1b2c3d4-....jpg
+ */
+function getThumbPath(fileId) {
+  const { dir } = getThumbSubDir(fileId);
+  return path.join(dir, `${fileId}.jpg`);
+}
+
+/**
+ * Negative cache marker dosya yolunu döndürür.
+ * Thumbnail üretimi başarısız olursa 0 byte'lık bu marker yazılır;
+ * sonraki /thumb istekleri marker'ı görüp sharp'ı tekrar tetiklemeden
+ * 404 döner (DoS önlemi — bozuk imaja sürekli istek atılmasını engeller).
+ *
+ * @param {string} fileId
+ * @returns {string} - Örn: /data/thumbs/a1/b2/a1b2c3d4-....fail
+ */
+function getThumbFailMarkerPath(fileId) {
+  const { dir } = getThumbSubDir(fileId);
+  return path.join(dir, `${fileId}.fail`);
+}
+
+/**
+ * Thumbnail cache'ini temizler (dosya silindiğinde / süresi dolduğunda çağrılır).
+ * Hem .jpg thumbnail'i hem de .fail negative cache marker'ını siler.
  * @param {string} fileId
  */
 async function deleteThumb(fileId) {
   const thumbPath = getThumbPath(fileId);
-  try {
-    await fs.promises.unlink(thumbPath);
-    return true;
-  } catch (err) {
-    if (err.code === 'ENOENT') return false;
-    throw err;
+  const failPath = getThumbFailMarkerPath(fileId);
+  let removed = false;
+  for (const p of [thumbPath, failPath]) {
+    try {
+      await fs.promises.unlink(p);
+      removed = true;
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      // Yok → sessizce geç
+    }
   }
+  return removed;
 }
 
 /**
@@ -196,5 +251,8 @@ module.exports = {
   THUMBS_DIR,
   ensureThumbsDir,
   getThumbPath,
+  getThumbFailMarkerPath,
+  getThumbSubDir,
+  ensureThumbSubDir,
   deleteThumb,
 };

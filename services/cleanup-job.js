@@ -15,9 +15,12 @@ const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
 const { getConfig } = require('./config-service');
-const { deleteThumb } = require('./storage-service');
+const { deleteThumb, THUMBS_DIR, getThumbPath, getThumbFailMarkerPath, ensureThumbSubDir } = require('./storage-service');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
+
+// Migration flag — migrateFlatThumbs bir kez çalışsın (in-memory).
+let flatThumbMigrationDone = false;
 
 // =========================================================================
 // Yapılandırma
@@ -153,6 +156,78 @@ async function cleanupOrphanChunkDirs() {
 }
 
 // =========================================================================
+// Flat Thumbnail Migration (eski düz yapı → sub-directory hashing)
+// =========================================================================
+
+/**
+ * Eski düz yapıdaki (/data/thumbs/<id>.jpg) thumbnail'ları yeni sub-directory
+ * yapısına (/data/thumbs/a1/b2/<id>.jpg) taşır. Bir kez çalışır (flatThumbMigrationDone).
+ *
+ * Migration stratejisi:
+ *   - /data/thumbs/ kökünde doğrudan .jpg / .fail dosyaları varsa eski düz yapının
+ *     kalıntısıdır (sub-dir yapısında tüm dosyalar a1/b2/ altındadır).
+ *   - Her flat dosyayı yeni getThumbPath/getThumbFailMarkerPath yoluna taşı.
+ *   - Hedef zaten varsa (on-demand regen üretmiş olabilir) flat dosyayı sil.
+ *
+ * Bu migration zararsızdır: yeni sub-dir'de zaten thumbnail varsa flat dosya
+ * sadece silinir; yoksa taşınır. Veri kaybı olmaz.
+ */
+async function migrateFlatThumbs() {
+  if (flatThumbMigrationDone) return;
+  flatThumbMigrationDone = true;
+
+  if (!fs.existsSync(THUMBS_DIR)) return;
+
+  let moved = 0;
+  let removed = 0;
+
+  try {
+    const entries = fs.readdirSync(THUMBS_DIR, { withFileTypes: true });
+
+    for (const entry of entries) {
+      // Sadece düz dosyaları işle (dizinler = yeni sub-dir yapısı, atla)
+      if (!entry.isFile()) continue;
+
+      const flatPath = path.join(THUMBS_DIR, entry.name);
+      // Dosya adından fileId çıkar: "<id>.jpg" veya "<id>.fail"
+      const match = entry.name.match(/^(.+)\.(jpg|fail)$/);
+      if (!match) continue;
+      const fileId = match[1];
+      const ext = match[2];
+
+      const targetPath = ext === 'jpg'
+        ? getThumbPath(fileId)
+        : getThumbFailMarkerPath(fileId);
+
+      try {
+        // Hedef alt dizini oluştur
+        await ensureThumbSubDir(fileId);
+
+        if (fs.existsSync(targetPath)) {
+          // Hedef zaten var (on-demand üretildi) → flat dosyayı sil
+          fs.unlinkSync(flatPath);
+          removed++;
+        } else {
+          // Taşı
+          fs.renameSync(flatPath, targetPath);
+          moved++;
+        }
+      } catch (err) {
+        console.error(`[Cleanup] Flat thumb migration failed for ${entry.name}:`, err.message);
+      }
+    }
+
+    if (moved > 0 || removed > 0) {
+      console.log(`[Cleanup] Flat thumb migration: ${moved} moved, ${removed} removed (dedup).`);
+    }
+  } catch (err) {
+    console.error('[Cleanup] Flat thumb migration error:', err.message);
+    // Hata durumunda flag'i reset et ki bir sonraki cycle'da tekrar deneyebilsin
+    flatThumbMigrationDone = false;
+  }
+}
+
+// =========================================================================
 // Periyodik Çalıştırma
 // =========================================================================
 
@@ -177,6 +252,8 @@ async function startCleanupJob() {
   console.log(`[Cleanup] Starting cleanup job. Interval: ${cleanupIntervalMs / 60000} minutes.`);
 
   // İlk temizliği hemen yap (başlangıçta birikmiş olabilir)
+  // Önce eski düz yapılı thumbnail'ları migrate et (sub-directory hashing).
+  await migrateFlatThumbs();
   await runCleanup();
 
   // Periyodik çalıştır
@@ -216,4 +293,5 @@ module.exports = {
   runCleanup,
   startCleanupJob,
   stopCleanupJob,
+  migrateFlatThumbs,
 };
