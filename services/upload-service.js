@@ -16,6 +16,14 @@ const path = require('path');
 const { query } = require('./database');
 const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
 const { getConfig } = require('./config-service');
+// sharp lazy import — thumbnail üretimi için (image dosyaları).
+// bağımlılık yoksa thumbnail atlama sessizce yapılır.
+let maybeGenerateThumbnail = async () => false;
+try {
+  ({ maybeGenerateThumbnail } = require('./preview-service'));
+} catch (err) {
+  console.warn('[Upload] preview-service yüklenemedi — thumbnail üretimi kapalı:', err.message);
+}
 
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 9392}`;
 
@@ -283,6 +291,17 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   const storagePath = path.join(UPLOADS_DIR, storageFilename);
 
   await writeFile(storagePath, file.data);
+
+  // -----------------------------------------------------------------------
+  // Image dosyaları için thumbnail üret (preview için compressed kopya).
+  // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
+  // Hata olması kritik değil — preview fallback olarak full URL kullanır.
+  // -----------------------------------------------------------------------
+  try {
+    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted);
+  } catch (err) {
+    console.error(`[Upload] Thumbnail generation failed for ${fileId}:`, err.message);
+  }
 
   // -----------------------------------------------------------------------
   // Metadata'yı PG'ye Yaz

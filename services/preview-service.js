@@ -272,8 +272,34 @@ function isTextMime(mimeType) {
   return textTypes.some(t => mimeType.startsWith(t));
 }
 
+/**
+ * Upload sırasında çağrılır: image dosyaları için thumbnail üretir.
+ * Şifreli dosyalar (ciphertext) ve image olmayanlar atlanır.
+ *
+ * @param {string} fileId
+ * @param {string} storagePath
+ * @param {string} mimeType
+ * @param {boolean} isEncrypted
+ * @returns {Promise<boolean>} - Thumbnail üretildiyse true
+ */
+async function maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted) {
+  // Şifreli dosyaların içeriği ciphertext'tir → sharp decode edemez, atla.
+  if (isEncrypted) return false;
+  // Sadece image/* için thumbnail (diğer türler zaten indirilmeli).
+  if (!mimeType || !mimeType.startsWith('image/')) return false;
+  if (!sharp) return false;
+
+  try {
+    await generateThumbnail({ id: fileId, storage_path: storagePath, mime_type: mimeType });
+    return true;
+  } catch (err) {
+    console.error(`[Preview] Thumbnail generation failed at upload for ${fileId}:`, err.message);
+    return false;
+  }
+}
+
 // =========================================================================
 // Export
 // =========================================================================
 
-module.exports = { getPreview, generateThumbnail };
+module.exports = { getPreview, generateThumbnail, maybeGenerateThumbnail };

@@ -140,10 +140,10 @@ function renderFiles(files) {
     }
 
     // Build icon area: şifreli image'lar için raw thumbnail anlamsızdır → ikon göster.
-    // Şifresiz image'lar için thumbnail kullan.
+    // Şifresiz image'lar için compressed thumbnail (/thumb) kullan — full res /dl'de.
     let iconHtml;
     if (isImage && !expired && !isEncrypted) {
-      iconHtml = `<img src="/api/files/${file.id}/dl" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeAttr(file.mime_type)}">`;
+      iconHtml = `<img src="/api/files/${file.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeAttr(file.mime_type)}" data-fallback-dl="/api/files/${file.id}/dl">`;
     } else {
       iconHtml = `<span class="file-item-icon">${getFileIcon(file.mime_type, file.filename)}</span>`;
     }
@@ -165,13 +165,11 @@ function renderFiles(files) {
       </div>
       <div class="file-item-actions">
         ${!expired ? `
-          <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl || '')}" title="Linki kopyala">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <span class="copy-btn-label">Kopyala</span>
+          <button class="btn btn-copy btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl || '')}" title="Linki kopyala" aria-label="Linki kopyala">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           </button>
-          <a href="${escapeAttr(previewPageUrl)}" class="btn btn-primary btn-sm" title="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            ${isEncrypted ? 'Aç' : 'İndir'}
+          <a href="${escapeAttr(previewPageUrl)}" class="btn btn-success btn-sm btn-icon-only" title="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}" aria-label="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </a>
         ` : `
           <span class="text-muted text-xs file-item-deleted">
@@ -183,9 +181,17 @@ function renderFiles(files) {
     `;
 
     // Fix image fallback without onerror inline script
+    // Thumbnail (/thumb) yüklenemezse önce full /dl'yi dene, o da olmazsa ikon göster.
     const img = item.querySelector('img.file-item-thumb');
     if (img) {
       img.addEventListener('error', () => {
+        const dlFallback = img.dataset.fallbackDl;
+        const currentSrc = img.getAttribute('src') || '';
+        if (dlFallback && currentSrc !== dlFallback) {
+          // Önce compressed thumbnail → full /dl'ye düş
+          img.setAttribute('src', dlFallback);
+          return;
+        }
         const mime = img.dataset.fallbackIcon || '';
         const span = document.createElement('span');
         span.className = 'file-item-icon';
@@ -201,27 +207,30 @@ function renderFiles(files) {
     }
   }
 
-  // Link kopyalama (click anywhere on button)
+  // Link kopyalama (icon-only buton — text label yok)
   document.querySelectorAll('.copy-link-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation(); // file-item click'i tetiklemesin
       const url = btn.dataset.url;
       copyToClipboard(url);
-      const label = btn.querySelector('.copy-btn-label');
       const svgEl = btn.querySelector('svg');
-      if (label) label.textContent = 'Kopyalandı!';
       if (svgEl) svgEl.classList.add('icon-success');
       btn.classList.add('btn-copied');
+      // Brief visual feedback: kopyalandı checkmark
+      const origHtml = svgEl ? svgEl.outerHTML : '';
+      if (svgEl) {
+        svgEl.outerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" class="icon-success"><polyline points="20 6 9 17 4 12"/></svg>';
+      }
       setTimeout(() => {
-        if (label) label.textContent = 'Kopyala';
-        if (svgEl) svgEl.classList.remove('icon-success');
+        const newSvg = btn.querySelector('svg');
+        if (newSvg) newSvg.outerHTML = origHtml;
         btn.classList.remove('btn-copied');
       }, 2000);
     });
   });
 
   // İndir butonunun file-item click'i tetiklememesi
-  document.querySelectorAll('.file-item a.btn-primary').forEach(a => {
+  document.querySelectorAll('.file-item a.btn-success, .file-item a.btn-primary').forEach(a => {
     a.addEventListener('click', (e) => e.stopPropagation());
   });
 
@@ -255,16 +264,28 @@ async function openPreview(fileId, filename, mimeType) {
   try {
     const mime = mimeType || '';
 
-    // Resim
+    // Resim — preview için compressed thumbnail (/thumb), tam çözünürlük için /dl
     if (mime.startsWith('image/')) {
       DOM.previewContent.innerHTML = `
-        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="Tam çözünürlük aç">
-          <img src="/api/files/${fileId}/dl" alt="${escapeHtml(filename)}"
-            onerror="this.parentElement.outerHTML='<p class=\\'text-muted\\'>Resim yüklenemedi.</p>'"
+        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="Tam çözünürlük aç" class="preview-img-link">
+          <img src="/api/files/${fileId}/thumb" alt="${escapeHtml(filename)}" class="preview-thumb-img"
+            data-fallback="/api/files/${fileId}/dl"
           >
         </a>
         <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Tam çözünürlük için resme tıkla</p>
       `;
+      // Thumbnail yüklenemezse full /dl'ye düş
+      const thumbImg = DOM.previewContent.querySelector('img.preview-thumb-img');
+      if (thumbImg) {
+        thumbImg.addEventListener('error', () => {
+          const fb = thumbImg.dataset.fallback;
+          if (fb && thumbImg.getAttribute('src') !== fb) {
+            thumbImg.setAttribute('src', fb);
+          } else {
+            thumbImg.parentElement.outerHTML = '<p class="text-muted">Resim yüklenemedi.</p>';
+          }
+        });
+      }
       return;
     }
 

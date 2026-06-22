@@ -7,6 +7,9 @@
 
 const { addRoute, sendJSON, sendError, serveStaticFile } = require('../server');
 const { serveDownload, getFileMetadata } = require('../services/download-service');
+const { generateThumbnail } = require('../services/preview-service');
+const { fileExists, readFileStream, getThumbPath } = require('../services/storage-service');
+const { query } = require('../services/database');
 
 // =========================================================================
 // GET /files/:id — Dosya Önizleme Sayfası (HTML)
@@ -96,6 +99,78 @@ addRoute('GET', '/api/files/:id', async (req, res, params, body) => {
   } catch (err) {
     console.error('[Files] Error getting metadata:', err.message);
     sendError(res, 500, 'Internal server error');
+  }
+});
+
+// =========================================================================
+// GET /api/files/:id/thumb — Image Thumbnail (compressed, public)
+// =========================================================================
+// Image preview için compressed thumbnail döndürür (sharp ile üretilmiş,
+// /data/thumbs/:id.jpg'de cache'lenir). Upload sırasında üretilmemişse burada
+// talep üzerine üretilir. Şifreli dosyalar (ciphertext) ve image olmayanlar
+// için 404 döner — frontend fallback olarak full /dl kullanır.
+
+addRoute('GET', '/api/files/:id/thumb', async (req, res, params, body) => {
+  const fileId = params.id;
+
+  if (!fileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileId)) {
+    return sendError(res, 400, 'Invalid file ID format');
+  }
+
+  try {
+    // Doğrudan metadata çek (storage_path gerekli)
+    const result = await query(
+      `SELECT id, mime_type, storage_path, is_encrypted, expire_at
+       FROM files WHERE id = $1`,
+      [fileId]
+    );
+    if (result.rows.length === 0) {
+      return sendError(res, 404, 'File not found');
+    }
+    const file = result.rows[0];
+
+    // Süresi dolmuş
+    if (new Date(file.expire_at) < new Date()) {
+      return sendError(res, 410, 'File has expired');
+    }
+    // Şifreli dosyalar (ciphertext) ve image olmayanlar → thumbnail yok
+    if (file.is_encrypted) {
+      return sendError(res, 404, 'Thumbnail not available for encrypted files');
+    }
+    if (!file.mime_type || !file.mime_type.startsWith('image/')) {
+      return sendError(res, 404, 'Thumbnail only available for images');
+    }
+
+    // Thumbnail cache'te var mı? Yoksa üret.
+    const thumbPath = getThumbPath(fileId);
+    if (!(await fileExists(thumbPath))) {
+      try {
+        await generateThumbnail({ id: fileId, storage_path: file.storage_path, mime_type: file.mime_type });
+      } catch (genErr) {
+        console.error('[Files] Thumbnail generation failed:', genErr.message);
+      }
+    }
+    // Hâlâ yoksa (sharp yok / decode hatası) → 404, frontend full /dl'ye düşer
+    if (!(await fileExists(thumbPath))) {
+      return sendError(res, 404, 'Thumbnail not available');
+    }
+
+    // Stream et
+    const { stream, size } = await readFileStream(thumbPath);
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': size,
+      'Cache-Control': 'public, max-age=86400',
+    });
+    stream.pipe(res);
+    stream.on('error', (err) => {
+      console.error('[Files] Thumb stream error:', err.message);
+      if (!res.headersSent) sendError(res, 500, 'Error reading thumbnail');
+      else res.destroy();
+    });
+  } catch (err) {
+    console.error('[Files] Thumbnail error:', err.message);
+    if (!res.headersSent) sendError(res, 500, 'Failed to generate thumbnail');
   }
 });
 

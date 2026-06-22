@@ -345,11 +345,10 @@ async function loadFiles(page = 1) {
         const icon = getFileIcon(f.mime_type);
         const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
 
-        // Image thumbnail — without onerror inline script (fixed later via addEventListener)
-        // Şifreli image'lar için /dl ciphertext döndürür (görüntülenemez) — ikon göster.
+        // Image thumbnail — compressed /thumb kullan, full /dl'ye düş (şifreli ise ikon)
         const showImageThumb = isImage && !f.is_encrypted;
         const iconOrThumb = showImageThumb
-          ? `<img src="/api/files/${f.id}/dl" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}">`
+          ? `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}" data-fallback-dl="/api/files/${f.id}/dl">`
           : `<span class="file-item-icon">${icon}</span>`;
 
         // Şifreli dosyalar için kilit rozeti
@@ -376,9 +375,15 @@ async function loadFiles(page = 1) {
         `;
       }).join('');
 
-      // Fix image fallback (no onerror inline script)
+      // Fix image fallback: /thumb yüklenemezse önce full /dl, o da olmazsa ikon
       DOM.filesTableBody.querySelectorAll('img.file-item-thumb').forEach(img => {
         img.addEventListener('error', () => {
+          const dlFallback = img.dataset.fallbackDl;
+          const currentSrc = img.getAttribute('src') || '';
+          if (dlFallback && currentSrc !== dlFallback) {
+            img.setAttribute('src', dlFallback);
+            return;
+          }
           const mime = img.dataset.fallbackIcon || '';
           const span = document.createElement('span');
           span.className = 'file-item-icon';
@@ -463,19 +468,30 @@ async function openPreview(fileId, filename) {
 
   // Image
       case 'image': {
-        // Thumbnail tercih et, yoksa full URL göster (her ikisi de public /dl endpoint)
-        const imgSrc = (data.thumbnail_url && token)
+        // Admin panel: compressed thumbnail (preview-img admin endpoint, token ile)
+        // yoksa public /thumb, o da yoksa full /dl.
+        const adminThumb = (data.thumbnail_url && token)
           ? data.thumbnail_url + '?token=' + encodeURIComponent(token)
-          : data.full_url;
+          : `/api/files/${fileId}/thumb`;
 
         DOM.previewContent.innerHTML = `
-          <a href="${data.full_url}" target="_blank" rel="noopener" title="Tam çözünürlük aç (${formatSize(parseInt(data.total_size))})">
-            <img src="${imgSrc}" alt="${escapeHtml(filename)}"
-              onerror="if(this.src!=='${data.full_url}'){this.src='${data.full_url}'}"
+          <a href="${data.full_url}" target="_blank" rel="noopener" title="Tam çözünürlük aç (${formatSize(parseInt(data.total_size))})" class="preview-img-link">
+            <img src="${adminThumb}" alt="${escapeHtml(filename)}" class="preview-thumb-img"
+              data-fallback="${data.full_url}"
             >
           </a>
           <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Tam çözünürlük için resme tıkla (${formatSize(parseInt(data.total_size))})</p>
         `;
+        // Thumbnail yüklenemezse full /dl'ye düş
+        const thumbImg = DOM.previewContent.querySelector('img.preview-thumb-img');
+        if (thumbImg) {
+          thumbImg.addEventListener('error', () => {
+            const fb = thumbImg.dataset.fallback;
+            if (fb && thumbImg.getAttribute('src') !== fb) {
+              thumbImg.setAttribute('src', fb);
+            }
+          });
+        }
         break;
       }
 
@@ -693,8 +709,8 @@ function showDecryptedPreview(meta, blobUrl) {
 
   if (mimeType.startsWith('image/')) {
     DOM.previewContent.innerHTML = `
-      <a href="${blobUrl}" target="_blank" rel="noopener" title="Tam çözünürlük aç">
-        <img src="${blobUrl}" alt="${escapeHtml(filename)}">
+      <a href="${blobUrl}" target="_blank" rel="noopener" title="Tam çözünürlük aç" class="preview-img-link">
+        <img src="${blobUrl}" alt="${escapeHtml(filename)}" class="preview-thumb-img">
       </a>
       <p class="text-muted text-xs mt-1">Deşifre edilmiş önizleme</p>
     `;

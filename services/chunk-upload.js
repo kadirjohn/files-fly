@@ -19,6 +19,13 @@ const { query } = require('./database');
 const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
 const { getConfig } = require('./config-service');
 const { getMimeType, isMimeTypeAllowed, validateFileSize } = require('./upload-service');
+// sharp lazy import — chunked finalize sırasında image thumbnail üretimi.
+let maybeGenerateThumbnail = async () => false;
+try {
+  ({ maybeGenerateThumbnail } = require('./preview-service'));
+} catch (err) {
+  console.warn('[ChunkUpload] preview-service yüklenemedi — thumbnail kapalı:', err.message);
+}
 
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 9392}`;
 
@@ -276,6 +283,16 @@ async function finalizeUpload(fileId, dir, metadata) {
   );
 
   const fileMetadata = result.rows[0];
+
+  // -----------------------------------------------------------------------
+  // Image dosyaları için thumbnail üret (preview için compressed kopya).
+  // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
+  // -----------------------------------------------------------------------
+  try {
+    await maybeGenerateThumbnail(fileId, storagePath, mimeType, isEncrypted);
+  } catch (err) {
+    console.error(`[ChunkUpload] Thumbnail generation failed for ${fileId}:`, err.message);
+  }
 
   // -----------------------------------------------------------------------
   // Geçici chunk dizinini temizle

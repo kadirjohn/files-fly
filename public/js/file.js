@@ -148,10 +148,24 @@
     // İndirme butonu handler'ı
     setupDownloadButton(meta);
 
-    // Şifresiz image ise direkt önizleme göster
+    // Şifresiz image ise önizleme göster (compressed thumbnail — full res /dl'de)
     if (meta.mime_type && meta.mime_type.startsWith('image/') && !meta.is_encrypted) {
       DOM.imagePreview.classList.remove('hidden');
-      DOM.previewImg.src = '/api/files/' + fileId + '/dl';
+      DOM.previewImg.src = '/api/files/' + fileId + '/thumb';
+      // Tam çözünürlük için resme tıkla → yeni sekmede full /dl
+      DOM.previewImg.style.cursor = 'zoom-in';
+      DOM.previewImg.onclick = () => {
+        window.open('/api/files/' + fileId + '/dl', '_blank', 'noopener');
+      };
+      // Thumbnail yüklenemezse full /dl'ye düş
+      DOM.previewImg.onerror = () => {
+        const fullUrl = '/api/files/' + fileId + '/dl';
+        if (DOM.previewImg.getAttribute('src') !== fullUrl) {
+          DOM.previewImg.src = fullUrl;
+        } else {
+          DOM.imagePreview.classList.add('hidden');
+        }
+      };
     }
   }
 

@@ -62,8 +62,9 @@
 
             <!-- Önizleme / çözülmüş içerik (şifreli ise parola girildikten sonra) -->
             <div id="image-preview" class="image-preview hidden">
-                <img id="preview-img" src="" alt="Dosya önizleme" style="max-width:100%;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);">
+                <img id="preview-img" src="" alt="Dosya önizleme" style="max-width:100%;max-height:70vh;object-fit:contain;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);cursor:zoom-in;">
             </div>
+            <p id="image-preview-hint" class="text-center text-muted text-xs mt-1 hidden" style="display:none;">Tam çözünürlük için resme tıkla</p>
 
             <!-- Süre dolmuş uyarısı -->
             <div id="expired-warning" class="warning-box hidden">

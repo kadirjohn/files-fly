@@ -432,6 +432,35 @@ h3 { font-size: 1.25rem; }
     transform: translateY(0);
 }
 
+/* Beyaz kopyalama butonu (siyah ikon) — Dosyalarım listesi */
+.btn-copy {
+    background: #fff;
+    color: #111;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.btn-copy:hover:not(:disabled) {
+    background: #f3f4f6;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.btn-copy:active:not(:disabled) {
+    transform: translateY(0);
+}
+.btn-copy .icon-success,
+.btn-copy.btn-copied .icon-success {
+    color: var(--color-success);
+}
+
+/* Sadece ikon içeren butonlar — metin yok (kopyala/indir) */
+.btn-icon-only {
+    padding: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--color-text-muted);
@@ -1059,7 +1088,10 @@ h3 { font-size: 1.25rem; }
     width: 100%;
     max-width: 820px;
     max-height: 90vh;
-    overflow-y: auto;
+    /* overflow-y box'ta DEĞİL — content alanı scroll eder.
+       Box'ın kendi scroll'u flexbox min-height sorunu yaratıyordu
+       (img preview ekranın dışına taşıyordu). */
+    overflow: hidden;
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
     display: flex;
     flex-direction: column;
@@ -1120,12 +1152,30 @@ h3 { font-size: 1.25rem; }
     overflow: auto;
     padding: 1.25rem 1.5rem;
     text-align: center;
-    min-height: 120px;
+    /* min-height: 0 — flexbox overflow hack'i.
+       Bu olmadan flex item içeriğin boyutu kadar büyür,
+       overflow:auto çalışmaz ve img modal'ın dışına taşar. */
+    min-height: 0;
+    box-sizing: border-box;
+    word-break: break-word;
+}
+
+/* <a> wrapper (resme tıkla → tam çözünürlük) inline ise max-width:100%
+   img'de dairesel referansa düşer (a'nın genişliği = img'nin doğal genişliği).
+   Bu yüzden <a>'yı inline-block + max-width:100% ile sınırlıyoruz. */
+.preview-content a:has(img),
+.preview-content a.preview-img-link {
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
 }
 
 .preview-content img {
+    /* Konteyner içinde kesin sığma — taşma olmasın. */
     max-width: 100%;
-    max-height: 55vh;
+    max-height: 60vh;
+    width: auto;
+    height: auto;
     object-fit: contain;
     border-radius: var(--radius-sm);
     display: block;
