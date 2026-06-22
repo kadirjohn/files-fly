@@ -35,9 +35,13 @@
         <span>Files Fly</span>
     </a>
     <nav class="app-nav">
+        <div class="lang-switcher">
+            <button class="lang-btn active" data-lang="tr" aria-label="Türkçe" title="Türkçe">TR</button>
+            <button class="lang-btn" data-lang="en" aria-label="English" title="English">EN</button>
+        </div>
         <a href="/" class="nav-link-files">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            <span>Ana Sayfa</span>
+            <span data-i18n="sessionHome">Ana Sayfa</span>
         </a>
     </nav>
 </header>
@@ -53,27 +57,27 @@
                 <div class="form-group form-group-compact">
                     <label class="form-label" for="expire-select">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" class="icon-inline"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        Süre
+                        <span data-i18n="sessionDuration">Süre</span>
                     </label>
                     <select id="expire-select" class="form-select" aria-label="Saklama süresi seçin">
-                        <option value="1" selected>1 Saat</option>
-                        <option value="6">6 Saat</option>
-                        <option value="12">12 Saat</option>
-                        <option value="24">24 Saat (1 Gün)</option>
-                        <option value="48">48 Saat (2 Gün)</option>
+                        <option value="1" selected data-i18n="expire1h">1 Saat</option>
+                        <option value="6" data-i18n="expire6h">6 Saat</option>
+                        <option value="12" data-i18n="expire12h">12 Saat</option>
+                        <option value="24" data-i18n="expire24h">24 Saat (1 Gün)</option>
+                        <option value="48" data-i18n="expire48h">48 Saat (2 Gün)</option>
                     </select>
                 </div>
                 <div class="form-group form-group-compact">
                     <label class="form-label">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" class="icon-inline"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Parola
+                        <span data-i18n="sessionPassword">Parola</span>
                     </label>
                     <label class="form-checkbox form-checkbox-compact" id="password-toggle-label">
                         <input type="checkbox" id="password-toggle">
-                        <span>Parola ile koru</span>
+                        <span data-i18n="sessionPasswordProtect">Parola ile koru</span>
                     </label>
                     <div id="password-field" class="hidden mt-1">
-                        <input type="password" id="password-input" class="form-input" placeholder="Parola girin..." autocomplete="new-password">
+                        <input type="password" id="password-input" class="form-input" data-i18n-placeholder="passwordPlaceholder" placeholder="Parola girin..." autocomplete="new-password">
                     </div>
                 </div>
             </div>
@@ -83,8 +87,8 @@
                 <div class="drop-zone-icon drop-zone-icon-compact" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="32" height="32"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
                 </div>
-                <div class="drop-zone-title drop-zone-title-compact">Dosyanızı sürükleyin veya seçin</div>
-                <div class="drop-zone-subtitle" id="max-size-text">Maksimum dosya boyutu: 100 MB</div>
+                <div class="drop-zone-title drop-zone-title-compact" data-i18n="dropZoneTitle">Dosyanızı sürükleyin veya seçin</div>
+                <div class="drop-zone-subtitle" id="max-size-text" data-i18n="sessionMaxSize">Maksimum dosya boyutu: 100 MB</div>
                 <input type="file" id="file-input" class="drop-zone-input" aria-hidden="true">
             </div>
 
@@ -97,14 +101,14 @@
                     <div class="file-preview-name" id="preview-name"></div>
                     <div class="file-preview-size" id="preview-size"></div>
                 </div>
-                <button class="btn btn-ghost btn-icon" id="clear-file-btn" title="Dosyayı kaldır" aria-label="Seçili dosyayı kaldır">
+                <button class="btn btn-ghost btn-icon" id="clear-file-btn" data-i18n-title="sessionRemoveFile" title="Dosyayı kaldır" aria-label="Seçili dosyayı kaldır">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
 
             <!-- Yükle Butonu -->
             <div class="text-center mt-2">
-                <button id="upload-btn" class="btn btn-primary" disabled>
+                <button id="upload-btn" class="btn btn-primary" disabled data-i18n="uploadBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
                     Dosyayı Yükle
                 </button>
@@ -119,7 +123,7 @@
         <div class="glass-card">
             <h2 class="text-center mb-2 uploading-title">
                 <span class="spinner-inline"></span>
-                Yükleniyor...
+                <span data-i18n="uploading">Yükleniyor...</span>
             </h2>
 
             <div class="file-preview">
@@ -145,7 +149,7 @@
             </div>
 
             <div class="text-center mt-2">
-                <button id="cancel-upload-btn" class="btn btn-danger btn-sm">
+                <button id="cancel-upload-btn" class="btn btn-danger btn-sm" data-i18n="cancelUpload">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                     Yüklemeyi İptal Et
                 </button>
@@ -161,38 +165,38 @@
             <div class="success-icon" aria-hidden="true">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="52" height="52"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
-            <div class="success-message">Yükleme Başarılı!</div>
+            <div class="success-message" data-i18n="uploadSuccess">Yükleme Başarılı!</div>
             <div class="success-expiry" id="success-expiry-text">
-                <span>Dosyanız</span> <strong id="expiry-time" class="live-countdown">1 saat</strong> <span>içinde silinecektir.</span>
+                <span data-i18n="expiryPrefix">Dosyanız</span> <strong id="expiry-time" class="live-countdown">1 saat</strong> <span data-i18n="expirySuffix">içinde silinecektir.</span>
             </div>
 
             <!-- İndirme Sayacı -->
             <div id="download-count-info" class="text-center text-sm text-muted mb-2 hidden">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>İndirilme:</span> <strong id="download-count-value">0</strong>
+                <span data-i18n="downloadCount">İndirilme:</span> <strong id="download-count-value">0</strong>
             </div>
 
             <!-- Doğrudan İndirme Linki -->
-            <div class="link-box-label">
+            <div class="link-box-label" data-i18n="directLinkLabel">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:4px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 Doğrudan İndirme Linki [En Hızlı]
             </div>
             <div class="link-box">
                 <span class="link-box-url" id="direct-link-url"></span>
-                <button class="btn btn-primary btn-sm link-box-copy" data-copy="direct-link-url">
+                <button class="btn btn-primary btn-sm link-box-copy" data-copy="direct-link-url" data-i18n="copyBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     Kopyala
                 </button>
             </div>
 
             <!-- Önizleme Sayfası Linki -->
-            <div class="link-box-label">
+            <div class="link-box-label" data-i18n="previewLinkLabel">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:4px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 Önizleme Sayfası
             </div>
             <div class="link-box">
                 <span class="link-box-url" id="preview-link-url"></span>
-                <button class="btn btn-primary btn-sm link-box-copy" data-copy="preview-link-url">
+                <button class="btn btn-primary btn-sm link-box-copy" data-copy="preview-link-url" data-i18n="copyBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     Kopyala
                 </button>
@@ -201,8 +205,8 @@
             <!-- QR Kod — plain centered -->
             <div class="qr-area">
                 <div class="qr-code-row">
-                    <canvas id="qr-canvas" class="qr-canvas" width="140" height="140" aria-label="İndirme linki QR kodu"></canvas>
-                    <button id="qr-copy-btn" class="btn btn-copy btn-sm qr-copy-btn" title="QR Kodu Kopyala">
+                    <canvas id="qr-canvas" class="qr-canvas" width="140" height="140" data-i18n-aria="sessionQrLabel" aria-label="İndirme linki QR kodu"></canvas>
+                    <button id="qr-copy-btn" class="btn btn-copy btn-sm qr-copy-btn" data-i18n="sessionQrCopy" data-i18n-title="sessionQrCopy" title="QR Kodu Kopyala">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                         QR Kodu Kopyala
                     </button>
@@ -211,7 +215,7 @@
 
             <!-- E-posta ile Paylaş -->
             <div class="email-share-box">
-                <a id="email-share-link" href="#" class="btn btn-secondary btn-sm">
+                <a id="email-share-link" href="#" class="btn btn-secondary btn-sm" data-i18n="emailShare">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     E-posta ile Paylaş
                 </a>
@@ -219,14 +223,14 @@
 
             <!-- Parola Bilgisi (varsa) -->
             <div id="password-info" class="hidden mt-2">
-                <div class="text-sm text-muted password-notice">
+                <div class="text-sm text-muted password-notice" data-i18n="passwordInfo">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="vertical-align:middle;margin-right:4px;flex-shrink:0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     Bu dosya parola ile korumalıdır. Karşı taraf linke gittiğinde bir parola ekranı açılır ve parolayı girmesi istenir — linkin sonuna bir şey eklemenize gerek yoktur. Parolayı güvenli ve ayrı bir kanaldan karşı tarafa iletin.
                 </div>
             </div>
 
             <div class="text-center mt-3">
-                <button id="new-upload-btn" class="btn btn-primary">
+                <button id="new-upload-btn" class="btn btn-primary" data-i18n="newUploadBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Yeni Dosya Yükle
                 </button>
@@ -242,13 +246,13 @@
             <div class="error-icon" aria-hidden="true">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="52" height="52"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             </div>
-            <h2 class="mb-1">Yükleme Başarısız</h2>
-            <p class="text-muted text-sm mb-3" id="error-message">Bilinmeyen bir hata oluştu.</p>
-            <button id="retry-btn" class="btn btn-primary">
+            <h2 class="mb-1" data-i18n="uploadFailed">Yükleme Başarısız</h2>
+            <p class="text-muted text-sm mb-3" id="error-message" data-i18n="sessionUnknownError">Bilinmeyen bir hata oluştu.</p>
+            <button id="retry-btn" class="btn btn-primary" data-i18n="retryBtn">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.72"/></svg>
                 Tekrar Dene
             </button>
-            <button id="new-upload-error-btn" class="btn btn-ghost mt-1">
+            <button id="new-upload-error-btn" class="btn btn-ghost mt-1" data-i18n="newUploadBtn">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Yeni Dosya Yükle
             </button>
@@ -261,7 +265,7 @@
     <div class="section-divider mt-4 mb-3">
         <h2 class="flex-icon-title">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            Dosyalarım
+            <span data-i18n="sessionMyFiles">Dosyalarım</span>
         </h2>
     </div>
 
@@ -274,7 +278,7 @@
         <!-- Yükleniyor -->
         <div id="loading-state" class="text-center text-muted mt-3 loading-state">
             <div class="spinner"></div>
-            <span>Dosyalarınız yükleniyor...</span>
+            <span data-i18n="sessionLoading">Dosyalarınız yükleniyor...</span>
         </div>
 
         <!-- Boş durum -->
@@ -282,7 +286,7 @@
             <div class="empty-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="52" height="52"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             </div>
-            <p class="text-muted">Henüz hiç dosya yüklemediniz. Yukarıdaki formu kullanarak ilk dosyanızı yükleyin.</p>
+            <p class="text-muted" data-i18n="sessionEmpty">Henüz hiç dosya yüklemediniz. Yukarıdaki formu kullanarak ilk dosyanızı yükleyin.</p>
         </div>
 
         <!-- Hata durumu -->
@@ -290,8 +294,8 @@
             <div class="error-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="42" height="42"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             </div>
-            <p class="text-error" id="error-text">Dosyalar yüklenirken bir hata oluştu.</p>
-            <button id="retry-load-btn" class="btn btn-secondary mt-2">
+            <p class="text-error" id="error-text" data-i18n="sessionErrorLoadShort">Dosyalar yüklenirken bir hata oluştu.</p>
+            <button id="retry-load-btn" class="btn btn-secondary mt-2" data-i18n="retryBtn">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.72"/></svg>
                 Tekrar Dene
             </button>
@@ -299,12 +303,12 @@
 
         <!-- Sayfalama -->
         <div id="pagination" class="flex-center gap-1 mt-3 hidden">
-            <button id="prev-page-btn" class="btn btn-ghost btn-sm" disabled>
+            <button id="prev-page-btn" class="btn btn-ghost btn-sm" disabled data-i18n="sessionPrevPage">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
                 Önceki
             </button>
             <span id="page-info" class="text-sm text-muted"></span>
-            <button id="next-page-btn" class="btn btn-ghost btn-sm" disabled>
+            <button id="next-page-btn" class="btn btn-ghost btn-sm" disabled data-i18n="sessionNextPage">
                 Sonraki
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
@@ -318,19 +322,19 @@
         <div class="preview-modal-header">
             <h3 id="preview-title" class="preview-modal-title">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="vertical-align:middle;margin-right:6px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                Dosya Önizleme
+                <span data-i18n="sessionPreviewTitle">Dosya Önizleme</span>
             </h3>
-            <button id="preview-close-btn" class="preview-close-btn" aria-label="Kapat">
+            <button id="preview-close-btn" class="preview-close-btn" data-i18n-aria="sessionPreviewClose" aria-label="Kapat">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
         </div>
         <div id="preview-content" class="preview-content"></div>
         <div class="preview-modal-actions">
-            <a id="preview-download-btn" class="btn btn-success btn-sm" href="#" download>
+            <a id="preview-download-btn" class="btn btn-success btn-sm" href="#" download data-i18n="sessionDownload">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 İndir
             </a>
-            <button id="preview-close-btn2" class="btn btn-ghost btn-sm">
+            <button id="preview-close-btn2" class="btn btn-ghost btn-sm" data-i18n="sessionPreviewClose">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 Kapat
             </button>
@@ -343,6 +347,7 @@
 
 <script src="/js/debug.js"></script>
 <script src="/js/crypto.js"></script>
+<script src="/js/i18n.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/session.js"></script>
 

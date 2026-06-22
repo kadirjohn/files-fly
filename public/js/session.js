@@ -90,7 +90,7 @@ let countdownIntervals = [];
 
     if (totalPages > 1) {
       DOM.pagination.classList.remove('hidden');
-      DOM.pageInfo.textContent = `Sayfa ${currentPage} / ${totalPages}`;
+      DOM.pageInfo.textContent = `${t('sessionPageInfo')} ${currentPage} / ${totalPages}`;
       DOM.prevPageBtn.disabled = currentPage <= 1;
       DOM.nextPageBtn.disabled = currentPage >= totalPages;
     }
@@ -99,7 +99,7 @@ let countdownIntervals = [];
     console.error('[Session] Dosyalar yüklenirken hata:', err);
     DOM.loadingState.classList.add('hidden');
     DOM.errorState.classList.remove('hidden');
-    DOM.errorText.textContent = 'Dosyalar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.';
+    DOM.errorText.textContent = t('sessionErrorLoad');
   }
 }
 
@@ -116,7 +116,7 @@ function renderFiles(files) {
     item.className = `file-item${expired ? ' expired' : ''}`;
 
     const size = formatSize(file.file_size);
-    const timeLeft = expired ? 'Süresi doldu (silindi)' : getTimeLeft(file.expire_at);
+    const timeLeft = expired ? t('sessionExpired') : getTimeLeft(file.expire_at);
     const isEncrypted = !!file.is_encrypted;
     const isImage = file.mime_type && file.mime_type.startsWith('image/');
     // Şifreli dosyaların ham /dl'i ciphertext döndürür — inline preview anlamsız.
@@ -162,7 +162,7 @@ function renderFiles(files) {
 
     // Şifreli rozet
     const lockBadge = isEncrypted
-      ? `<span class="encrypted-lock-badge" title="Parola korumalı"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
+      ? `<span class="encrypted-lock-badge" title="${currentLang === 'en' ? 'Password protected' : 'Parola korumalı'}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
       : '';
 
     item.innerHTML = `
@@ -175,21 +175,21 @@ function renderFiles(files) {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             <span class="countdown" data-expire="${file.expire_at}">${timeLeft}</span>
           </span>
-          ${file.download_count > 0 ? `<span class="text-xs text-muted">${file.download_count} indirme</span>` : ''}
+          ${file.download_count > 0 ? `<span class="text-xs text-muted">${file.download_count} ${currentLang === 'en' ? 'downloads' : 'indirme'}</span>` : ''}
         </div>
       </div>
       <div class="file-item-actions">
         ${!expired ? `
-          <button class="btn btn-copy btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl || '')}" title="Linki kopyala" aria-label="Linki kopyala">
+          <button class="btn btn-copy btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl || '')}" title="${t('copyBtn')}" aria-label="${t('copyBtn')}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           </button>
-          <a href="${escapeAttr(previewPageUrl)}" class="btn btn-success btn-sm btn-icon-only" title="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}" aria-label="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}">
+          <a href="${escapeAttr(previewPageUrl)}" class="btn btn-success btn-sm btn-icon-only" title="${isEncrypted ? t('sessionDownloadEncrypted') : t('sessionDownloadFile')}" aria-label="${isEncrypted ? t('sessionDownloadEncrypted') : t('sessionDownloadFile')}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </a>
         ` : `
           <span class="text-muted text-xs file-item-deleted">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-            Silindi
+            ${t('sessionDeleted')}
           </span>
         `}
       </div>
@@ -266,11 +266,11 @@ async function openPreview(fileId, filename, mimeType) {
   const titleIcon = DOM.previewTitle.querySelector('svg');
   const titleIconHtml = titleIcon ? titleIcon.outerHTML : '';
   if (titleIconHtml) {
-    DOM.previewTitle.innerHTML = titleIconHtml + ` Dosya Önizleme: ${escapeHtml(filename)}`;
+    DOM.previewTitle.innerHTML = titleIconHtml + ` ${t('sessionPreviewFile')} ${escapeHtml(filename)}`;
   } else {
-    DOM.previewTitle.textContent = `Dosya Önizleme: ${filename}`;
+    DOM.previewTitle.textContent = `${t('sessionPreviewFile')} ${filename}`;
   }
-  DOM.previewContent.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
+  DOM.previewContent.innerHTML = `<p class="text-muted text-sm">${t('sessionPreviewLoading')}</p>`;
   DOM.previewPanel.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
   DOM.previewDownloadBtn.href = `/api/files/${fileId}/dl`;
@@ -282,12 +282,12 @@ async function openPreview(fileId, filename, mimeType) {
     // Resim — preview için compressed thumbnail (/thumb), tam çözünürlük için /dl
     if (mime.startsWith('image/')) {
       DOM.previewContent.innerHTML = `
-        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="Tam çözünürlük aç" class="preview-img-link">
+        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="${t('sessionPreviewFullRes')}" class="preview-img-link">
           <img src="/api/files/${fileId}/thumb" alt="${escapeHtml(filename)}" class="preview-thumb-img"
             data-fallback="/api/files/${fileId}/dl"
           >
         </a>
-        <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Tam çözünürlük için resme tıkla</p>
+        <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> ${currentLang === 'en' ? 'Click image for full resolution' : 'Tam çözünürlük için resme tıkla'}</p>
       `;
       // Thumbnail yüklenemezse full /dl'ye düş
       const thumbImg = DOM.previewContent.querySelector('img.preview-thumb-img');
@@ -297,7 +297,7 @@ async function openPreview(fileId, filename, mimeType) {
           if (fb && thumbImg.getAttribute('src') !== fb) {
             thumbImg.setAttribute('src', fb);
           } else {
-            thumbImg.parentElement.outerHTML = '<p class="text-muted">Resim yüklenemedi.</p>';
+            thumbImg.parentElement.outerHTML = `<p class="text-muted">${currentLang === 'en' ? 'Image could not be loaded.' : 'Resim yüklenemedi.'}</p>`;
           }
         });
       }
@@ -309,7 +309,7 @@ async function openPreview(fileId, filename, mimeType) {
       DOM.previewContent.innerHTML = `
         <video controls>
           <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
-          Tarayıcınız video oynatmayı desteklemiyor.
+          ${currentLang === 'en' ? 'Your browser does not support video playback.' : 'Tarayıcınız video oynatmayı desteklemiyor.'}
         </video>
       `;
       return;
@@ -325,7 +325,7 @@ async function openPreview(fileId, filename, mimeType) {
           </p>
           <audio controls style="width:100%">
             <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
-            Tarayıcınız ses oynatmayı desteklemiyor.
+            ${currentLang === 'en' ? 'Your browser does not support audio playback.' : 'Tarayıcınız ses oynatmayı desteklemiyor.'}
           </audio>
         </div>
       `;
@@ -351,21 +351,21 @@ async function openPreview(fileId, filename, mimeType) {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const text = await resp.text();
         const preview = text.length > 100 * 1024
-          ? text.substring(0, 100 * 1024) + '\n\n... (dosya çok büyük, ilk 100KB gösteriliyor)'
+          ? text.substring(0, 100 * 1024) + (currentLang === 'en' ? '\n\n... (file too large, showing first 100KB)' : '\n\n... (dosya çok büyük, ilk 100KB gösteriliyor)')
           : text;
         DOM.previewContent.innerHTML = `<pre>${escapeHtml(preview)}</pre>`;
       } catch (err) {
-        DOM.previewContent.innerHTML = `<p class="text-error">İçerik yüklenemedi: ${escapeHtml(err.message)}</p>`;
+        DOM.previewContent.innerHTML = `<p class="text-error">${t('sessionPreviewContentError')} ${escapeHtml(err.message)}</p>`;
       }
       return;
     }
 
     // Desteklenmeyen
-    DOM.previewContent.innerHTML = `<p class="text-muted">Bu dosya türü (${escapeHtml(mime)}) için önizleme desteklenmiyor.</p>`;
+    DOM.previewContent.innerHTML = `<p class="text-muted">${t('sessionPreviewUnsupported')} (${escapeHtml(mime)})</p>`;
 
   } catch (err) {
     console.error('[Session] Önizleme yüklenemedi:', err);
-    DOM.previewContent.innerHTML = '<p class="text-error">Önizleme yüklenemedi.</p>';
+    DOM.previewContent.innerHTML = `<p class="text-error">${t('sessionPreviewLoadError')}</p>`;
   }
 }
 
@@ -402,14 +402,14 @@ function startCountdown(itemElement, expireAt) {
     countdownEl.textContent = timeLeft;
 
     if (new Date(expireAt) < new Date()) {
-      countdownEl.textContent = 'Süresi doldu (silindi)';
+      countdownEl.textContent = t('sessionExpired');
       itemElement.classList.add('expired');
       // Remove preview capability
       delete itemElement.dataset.previewId;
       itemElement.classList.remove('row-clickable');
       const actions = itemElement.querySelector('.file-item-actions');
       if (actions) {
-        actions.innerHTML = `<span class="text-muted text-xs file-item-deleted"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Silindi</span>`;
+        actions.innerHTML = `<span class="text-muted text-xs file-item-deleted"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> ${t('sessionDeleted')}</span>`;
       }
     }
   };
@@ -424,19 +424,26 @@ function getTimeLeft(expireAt) {
   const expire = new Date(expireAt);
   const diffMs = expire - now;
 
-  if (diffMs <= 0) return 'Süresi doldu (silindi)';
+  if (diffMs <= 0) return t('sessionExpired');
 
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const isEn = currentLang === 'en';
 
   if (hours > 24) {
     const days = Math.floor(hours / 24);
-    return `${days} gün ${hours % 24} saat kaldı`;
+    return isEn
+      ? `${days}d ${hours % 24}h left`
+      : `${days} gün ${hours % 24} saat kaldı`;
   }
   if (hours > 0) {
-    return `${hours} saat ${minutes} dk kaldı`;
+    return isEn
+      ? `${hours}h ${minutes}m left`
+      : `${hours} saat ${minutes} dk kaldı`;
   }
-  return `${minutes} dk kaldı`;
+  return isEn
+    ? `${minutes}m left`
+    : `${minutes} dk kaldı`;
 }
 
 // =========================================================================

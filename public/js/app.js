@@ -1183,120 +1183,9 @@ function initThemeToggle() {
 // i18n (Faz 5.3) — Türkçe + İngilizce
 // =========================================================================
 
-const I18N = {
-  tr: {
-    skipLink: 'Ana içeriğe atla',
-    myFiles: 'Dosyalarım',
-    pageTitle: 'Dosya Paylaş',
-    pageDesc: 'Başlamak için dosyanızı yükleyin, ve ardından paylaşmak istediğiniz kişi ile paylaşın. Dosyalar belirlediğiniz süre dolunca otomatik silinecek.',
-    expireLabel: 'Saklama Süresi',
-    expire1h: '1 Saat',
-    expire6h: '6 Saat',
-    expire12h: '12 Saat',
-    expire24h: '24 Saat (1 Gün)',
-    expire48h: '48 Saat (2 Gün)',
-    dropZoneTitle: 'Dosyanızı sürükleyin veya seçin',
-    passwordToggle: 'Dosyaları parola ile koru',
-    passwordPlaceholder: 'Parola girin...',
-    uploadBtn: 'Dosyayı Yükle',
-    uploadSuccess: 'Yükleme Başarılı!',
-    expiryPrefix: 'Dosyanız',
-    expirySuffix: 'içinde silinecektir.',
-    downloadCount: 'İndirilme:',
-    directLinkLabel: 'Doğrudan İndirme Linki [En Hızlı]',
-    previewLinkLabel: 'Önizleme Sayfası',
-    copyBtn: 'Kopyala',
-    emailShare: 'E-posta ile Paylaş',
-    passwordInfo: 'Bu dosya parola ile korumalıdır. Karşı taraf linke gittiğinde bir parola ekranı açılır ve parolayı girmesi istenir — linkin sonuna bir şey eklemenize gerek yoktur. Parolayı güvenli ve ayrı bir kanaldan karşı tarafa iletin.',
-    newUploadBtn: 'Yeni Dosya Yükle',
-    uploadFailed: 'Yükleme Başarısız',
-    retryBtn: 'Tekrar Dene',
-    copied: 'Kopyalandı!',
-    cancelUpload: 'Yüklemeyi İptal Et',
-    uploading: 'Yükleniyor...',
-    encrypting: 'Dosya şifreleniyor...',
-    encrypted: 'Dosya şifrelendi, yükleniyor...',
-    sessionError: 'Oturum oluşturulamadı. Lütfen sayfayı yenileyin.',
-    encryptError: 'Şifreleme hatası. Lütfen tekrar deneyin.',
-    connectionError: 'Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.',
-    serverResponseError: 'Sunucu yanıtı işlenemedi.',
-    uploadCancelled: 'Yükleme iptal edildi.',
-    chunkResume: 'parça zaten yüklenmiş. Kaldığınız yerden devam ediliyor.',
-    chunkCancelled: 'Yükleme iptal edildi. Kalan parçalar sunucuda saklandı, sayfayı yenilemeden devam edebilirsiniz.',
-    chunkFailed: 'Parça yüklenemedi. Lütfen tekrar deneyin.',
-    decryptTitle: 'Parola Korumalı Dosya',
-    decryptDesc: 'Bu dosya parola korumalıdır. İndirmek için parolayı girin.',
-    decryptPasswordLabel: 'Parola',
-    decryptPasswordPlaceholder: 'Parolayı girin...',
-    decryptBtn: 'Dosyayı Çöz ve İndir',
-    decryptErrorEmpty: 'Lütfen parola girin.',
-    decryptErrorWrong: 'Şifre çözme başarısız. Parola yanlış olabilir.',
-    decryptErrorDownload: 'Dosya indirilemedi. Süresi dolmuş olabilir.',
-    decryptProgressDownload: 'Şifreli dosya indiriliyor...',
-    decryptProgressDecrypt: 'Şifre çözülüyor...',
-    decryptProgressReady: 'Dosya hazır!',
-    decryptSuccess: 'Dosya başarıyla çözüldü ve indirildi!',
-    decryptDownloaded: 'İndirildi',
-    copySuccess: 'Link kopyalandı!',
-    copyFailed: 'Kopyalanamadı. Lütfen manuel kopyalayın.',
-  },
-  en: {
-    skipLink: 'Skip to main content',
-    myFiles: 'My Files',
-    pageTitle: 'Share a File',
-    pageDesc: 'To get started, upload your file and then share it with the person you want to share it with.',
-    expireLabel: 'Retention Time',
-    expire1h: '1 Hour',
-    expire6h: '6 Hours',
-    expire12h: '12 Hours',
-    expire24h: '24 Hours (1 Day)',
-    expire48h: '48 Hours (2 Days)',
-    dropZoneTitle: 'Drag & drop your file or click to select',
-    passwordToggle: 'Protect files with a password',
-    passwordPlaceholder: 'Enter password...',
-    uploadBtn: 'Upload File',
-    uploadSuccess: 'Upload Successful!',
-    expiryPrefix: 'Your file will be deleted in',
-    expirySuffix: '',
-    downloadCount: 'Downloads:',
-    directLinkLabel: 'Direct Download Link [Fastest]',
-    previewLinkLabel: 'Preview Page',
-    copyBtn: 'Copy',
-    emailShare: 'Share via Email',
-    passwordInfo: 'This file is protected with a password. When the recipient opens the link, a password prompt appears and they are asked to enter the password — you do not need to add anything to the end of the link. Send the password to the recipient via a separate, secure channel.',
-    newUploadBtn: 'Upload New File',
-    uploadFailed: 'Upload Failed',
-    retryBtn: 'Retry',
-    copied: 'Copied!',
-    cancelUpload: 'Cancel Upload',
-    uploading: 'Uploading...',
-    encrypting: 'Encrypting file...',
-    encrypted: 'File encrypted, uploading...',
-    sessionError: 'Could not create session. Please reload the page.',
-    encryptError: 'Encryption error. Please try again.',
-    connectionError: 'Connection error. Please check your internet connection.',
-    serverResponseError: 'Could not process server response.',
-    uploadCancelled: 'Upload cancelled.',
-    chunkResume: 'chunks already uploaded. Resuming from where you left off.',
-    chunkCancelled: 'Upload cancelled. Remaining chunks are saved on the server, you can resume without refreshing.',
-    chunkFailed: 'Chunk upload failed. Please try again.',
-    decryptTitle: 'Password Protected File',
-    decryptDesc: 'This file is password protected. Enter the password to download.',
-    decryptPasswordLabel: 'Password',
-    decryptPasswordPlaceholder: 'Enter password...',
-    decryptBtn: 'Decrypt & Download',
-    decryptErrorEmpty: 'Please enter a password.',
-    decryptErrorWrong: 'Decryption failed. The password may be incorrect.',
-    decryptErrorDownload: 'Could not download file. It may have expired.',
-    decryptProgressDownload: 'Downloading encrypted file...',
-    decryptProgressDecrypt: 'Decrypting...',
-    decryptProgressReady: 'File ready!',
-    decryptSuccess: 'File successfully decrypted and downloaded!',
-    decryptDownloaded: 'Downloaded',
-    copySuccess: 'Link copied!',
-    copyFailed: 'Could not copy. Please copy manually.',
-  },
-};
+// I18N translations ayrı dosyaya taşındı: /js/i18n.js
+// (app.js'den önce yüklenmeli — HTML'de script sırasına dikkat)
+// I18N object'i global scope'ta, t() fonksiyonu aşağıda kullanır.
 
 let currentLang = localStorage.getItem('filesfly_lang') || 'tr';
 
@@ -1305,6 +1194,9 @@ function t(key) {
 }
 
 function applyTranslations() {
+  // <html lang> attribute güncelle
+  document.documentElement.lang = currentLang;
+
   // data-i18n attribute'ları
   // ÖNEMLİ: SVG ikon içeren elementlerde (örn. nav-link-files) textContent
   // kullanmak SVG'yi siler. Bu yüzden önce SVG çocuu var mı kontrol et —
@@ -1354,6 +1246,20 @@ function applyTranslations() {
     if (text) el.placeholder = text;
   });
 
+  // data-i18n-title (tooltip/title attribute çevirisi)
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.dataset.i18nTitle;
+    const text = t(key);
+    if (text) el.title = text;
+  });
+
+  // data-i18n-aria (aria-label attribute çevirisi)
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+    const key = el.dataset.i18nAria;
+    const text = t(key);
+    if (text) el.setAttribute('aria-label', text);
+  });
+
   // Lang switcher butonları
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === currentLang);
@@ -1387,6 +1293,12 @@ function updateDynamicTranslations() {
   if (currentStep === 'uploading') {
     const cancelBtn = document.getElementById('cancel-upload-btn');
     if (cancelBtn) cancelBtn.textContent = t('cancelUpload');
+  }
+
+  // Session page: reload file list so dynamically rendered items get translated
+  // (file items, countdown text, download buttons use t() at render time)
+  if (typeof loadFiles === 'function' && document.getElementById('file-list')) {
+    loadFiles();
   }
 
   // Success step copy buttons
