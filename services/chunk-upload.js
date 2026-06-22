@@ -214,6 +214,24 @@ async function finalizeUpload(fileId, dir, metadata) {
   }
 
   // -----------------------------------------------------------------------
+  // Expire süresi kontrolü (yüklemeden önce — single upload ile aynı davranış)
+  // -----------------------------------------------------------------------
+  // Önceki sürüm chunk'ları birleştirip bucket'a yazdıktan SONRA Math.min ile
+  // sessizce clamp ediyordu — bu, upload-service.js'nin (reject eden) davranışıyla
+  // tutarsızdı ve ayrıca orphan blob bırakma riski taşıyordu. Artık chunk'ları
+  // birleştirmeden önce reject ediyoruz: over-max expire → hata + tmp dir temizlik.
+  const maxExpireStr = await getConfig('max_expire_hours');
+  const maxExpireHours = maxExpireStr ? parseInt(maxExpireStr) : 48;
+  if (expireHours < 1) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw new Error('Expire time must be at least 1 hour');
+  }
+  if (expireHours > maxExpireHours) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw new Error(`Expire time cannot exceed ${maxExpireHours} hours`);
+  }
+
+  // -----------------------------------------------------------------------
   // Storage key + backend seç
   // -----------------------------------------------------------------------
   const ext = path.extname(filename) || '';
@@ -293,16 +311,11 @@ async function finalizeUpload(fileId, dir, metadata) {
   }
 
   // -----------------------------------------------------------------------
-  // Expire süresi kontrolü
-  // -----------------------------------------------------------------------
-  const maxExpireStr = await getConfig('max_expire_hours');
-  const maxExpireHours = maxExpireStr ? parseInt(maxExpireStr) : 48;
-  const finalExpireHours = Math.min(expireHours || 1, maxExpireHours);
-
-  // -----------------------------------------------------------------------
   // Metadata'yı PG'ye Yaz (storage_backend + storage_key)
   // -----------------------------------------------------------------------
-  const expireAt = new Date(Date.now() + finalExpireHours * 60 * 60 * 1000).toISOString();
+  // Expire kontrolü finalize başında (chunk'ları birleştirmeden önce) yapıldı;
+  // burada expireHours güvenli, clamp'e gerek yok.
+  const expireAt = new Date(Date.now() + (expireHours || 1) * 60 * 60 * 1000).toISOString();
   // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
   const directUrl = `/api/files/${fileId}/dl`;
   const previewUrl = `/files/${fileId}`;

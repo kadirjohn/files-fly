@@ -153,6 +153,9 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
     if (err.message.includes('not allowed')) {
       return sendError(res, 415, err.message);
     }
+    if (err.message.includes('Expire time')) {
+      return sendError(res, 400, err.message);
+    }
 
     sendError(res, 500, 'Chunk upload failed');
   }

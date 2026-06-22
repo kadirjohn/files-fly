@@ -17,6 +17,22 @@ const { query } = require('./database');
 const storage = require('./storage');
 
 // =========================================================================
+// Presigned URL Ömrü (Cloud backend indirme linki geçerlilik süresi)
+// =========================================================================
+// Kullanıcının upload sırasında seçtiği "expire" süresi artık hem dosya ömrü
+// (files.expire_at) hem de indirme linkinin (presigned URL) geçerlilik süresi
+// olarak kullanılır. Link ömrü = dosyanın kalan ömrü (expire_at - now).
+//
+// PRESIGN_MAX_SECONDS: güvenlik ağı üst sınırı. AWS S3 / Cloudflare R2 /
+// Supabase S3-uyumlu presigner'ları SigV4 ile en fazla 7 gün (604800 sn)
+// imzalar. Normal kullanımda (max_expire_hours=48 → 172800 sn) bu sınır
+// hiç devreye girmez; sadece gelecekte admin max_expire_hours'ı çok
+// yükseltirse makul bir link ömrü korur.
+const PRESIGN_MAX_SECONDS = 604800; // 7 gün
+const PRESIGN_MIN_SECONDS = 60;     // 60 sn floor — dosya 1 dk içinde expire olsa bile
+                                      // browser redirect'i takip edemeden 404 olmasın
+
+// =========================================================================
 // Range Header Parse
 // =========================================================================
 
@@ -124,12 +140,32 @@ async function serveDownload(fileId, rangeHeader = null) {
   const filename = encodeURIComponent(metadata.filename);
 
   // -----------------------------------------------------------------------
-  // Cloud backend → presigned URL + 302 redirect
+  // Cloud backend → presigned URL + 302 redirect (SADECE şifresiz dosyalar)
   // -----------------------------------------------------------------------
-  if (provider.isCloud) {
+  // Link ömrü = dosyanın kalan ömrü (expire_at - now). Böylece kullanıcı
+  // "48 saat" seçtiyse, üretilen bucket linki ~48 saat geçerli olur — dosya
+  // ömrüyle link ömrü aynı, kullanıcının zihinsel modeliyle uyumlu.
+  // (410 expired kontrolü yukarıda yapıldı → expire_at > now garanti.)
+  //
+  // ÖNEMLİ — şifreli dosyalar (is_encrypted) presigned redirect KULLANMAZ:
+  //   Şifresiz dosyalar <img>/<video src> ile doğrudan bucket'tan yüklenir
+  //   (cross-origin redirect sorun değildir — img tag CORS'a tabi değildir).
+  //   Ama şifreli dosyalar frontend'de fetch() + arrayBuffer() ile çekilip
+  //   AES-GCM deşifre edilir. Cross-origin redirect (302 → Supabase URL)
+  //   sonrası fetch arrayBuffer güvenilmez oluyor (opaque response / CORS
+  //   redirect kısıtları → "Failed to fetch"). Bu yüzden şifreli dosyalar
+  //   cloud backend'te bile SUNUCU ÜZERİNDEN stream edilir (presigned değil).
+  //   Sunucu bucket'tan okuyup tarayıcıya stream eder; tarayıcı same-origin
+  //   fetch ile arrayBuffer'ı güvenle alır. (Maliyet: sunucu trafiği, ama
+  //   şifreli dosyalar zaten blob olarak işlenmek zorunda — kaçınılmaz.)
+  if (provider.isCloud && !metadata.is_encrypted) {
     try {
+      const remainMs = new Date(metadata.expire_at).getTime() - Date.now();
+      const remainSec = Math.max(PRESIGN_MIN_SECONDS, Math.floor(remainMs / 1000));
+      const expiresIn = Math.min(remainSec, PRESIGN_MAX_SECONDS);
+
       const opts = {
-        expiresIn: 3600, // 1 saat geçerli
+        expiresIn,
         responseContentType: mimeType,
         responseContentDisposition: `inline; filename*=UTF-8''${filename}`,
       };
@@ -138,7 +174,8 @@ async function serveDownload(fileId, rangeHeader = null) {
         statusCode: 302,
         headers: {
           'Location': redirectUrl,
-          'Cache-Control': 'private, max-age=3600',
+          // 302 redirect response cache süresi hedef linkin geçerliliğiyle hizalı
+          'Cache-Control': `private, max-age=${expiresIn}`,
         },
         stream: null,
         metadata,
@@ -151,10 +188,14 @@ async function serveDownload(fileId, rangeHeader = null) {
   }
 
   // -----------------------------------------------------------------------
-  // Local backend → sunucu üzerinden stream (Range destekli)
+  // Sunucu üzerinden stream (local backend + cloud şifreli dosyalar)
   // -----------------------------------------------------------------------
+  // Bu dal artık iki durumda çalışır:
+  //   - local backend (Range destekli, her dosya)
+  //   - cloud backend + şifreli dosya (yukarıdaki presigned dalına düşmedi →
+  //     burada provider.getObjectStream ile bucket'tan okuyup sunucudan stream)
 
-  // Dosya diskte var mı?
+  // Dosya diskte/bucket'ta var mı?
   const exists = await provider.exists(metadata.storage_key);
   if (!exists) {
     return { statusCode: 404, headers: {}, stream: null, metadata: null };

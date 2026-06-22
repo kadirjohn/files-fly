@@ -37,7 +37,9 @@ class R2StorageProvider extends S3BaseStorageProvider {
       secretAccessKey: config.secretAccessKey || process.env.R2_SECRET_ACCESS_KEY,
       forcePathStyle: true, // R2 path-style ister
       publicBaseUrl: config.publicBaseUrl || process.env.R2_PUBLIC_BASE_URL || null,
-      presignExpiresIn: config.presignExpiresIn || parseInt(process.env.R2_PRESIGN_EXPIRES_IN || '3600', 10),
+      // presignExpiresIn: artık buradan set edilmez. İndirme linkinin ömrü
+      // kullanıcının seçtiği expire süresinden (files.expire_at - now) türetilir
+      // — bkz. services/download-service.js. s3-base.js default (3600) defense-in-depth kalır.
     });
   }
 

@@ -154,10 +154,13 @@ async function resolveConfigKeys(backend, keys) {
       }
     }
   } catch (err) {
-    // DB henüz hazır değilse veya tablo yoksa env ile devam et
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(`[Storage] DB config read skipped for ${backend}:`, err.message);
-    }
+    // DB henüz hazır değilse veya tablo yoksa env ile devam et.
+    // ÖNEMLİ: Bu uyarı her zaman (production dahil) loglanır. Önceden production'da
+    // bastırılıyordu — bu durumda resolveConfigKeys sessizce .env fallback'ine düşer,
+    // admin panelden girilmiş credential'lar yok sayılır ve "SUPABASE_S3_ENDPOINT
+    // zorunludur" gibi yanıltıcı constructor hataları ortaya çıkardı (DB okuma aslında
+    // patlamış ama kullanıcıya credential eksik gibi görünürdü). Artık root cause görünür.
+    console.warn(`[Storage] DB config read FAILED for ${backend} (falling back to .env):`, err.message);
   }
   return result;
 }
@@ -186,21 +189,19 @@ async function resolveLocalConfig() {
  * admin panelden girilen credential'lar etkisiz kalırdı (switch anında
  * "R2_ACCOUNT_ID zorunludur" hatası). resolveLocalConfig'in yaptığı gibi map'liyoruz.
  *
- * @returns {Promise<Object>} - { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, presignExpiresIn }
+ * @returns {Promise<Object>} - { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl }
  */
 async function resolveR2Config() {
   const cfg = await resolveConfigKeys('r2', [
     'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
-    'R2_BUCKET_NAME', 'R2_PUBLIC_BASE_URL', 'R2_PRESIGN_EXPIRES_IN',
+    'R2_BUCKET_NAME', 'R2_PUBLIC_BASE_URL',
   ]);
-  const presignRaw = cfg.R2_PRESIGN_EXPIRES_IN;
   return {
     accountId: cfg.R2_ACCOUNT_ID || undefined,
     accessKeyId: cfg.R2_ACCESS_KEY_ID || undefined,
     secretAccessKey: cfg.R2_SECRET_ACCESS_KEY || undefined,
     bucket: cfg.R2_BUCKET_NAME || undefined,
     publicBaseUrl: cfg.R2_PUBLIC_BASE_URL || undefined,
-    presignExpiresIn: presignRaw ? parseInt(presignRaw, 10) : undefined,
   };
 }
 
@@ -209,15 +210,14 @@ async function resolveR2Config() {
  * beklediği camelCase alan adlarına map'ler. (resolveR2Config ile aynı sebep —
  * bkz. yukarıdaki açıklama.)
  *
- * @returns {Promise<Object>} - { endpoint, region, accessKeyId, secretAccessKey, bucket, publicBaseUrl, presignExpiresIn }
+ * @returns {Promise<Object>} - { endpoint, region, accessKeyId, secretAccessKey, bucket, publicBaseUrl }
  */
 async function resolveSupabaseConfig() {
   const cfg = await resolveConfigKeys('supabase', [
     'SUPABASE_S3_ENDPOINT', 'SUPABASE_S3_REGION',
     'SUPABASE_S3_ACCESS_KEY_ID', 'SUPABASE_S3_SECRET_ACCESS_KEY',
-    'SUPABASE_S3_BUCKET', 'SUPABASE_S3_PUBLIC_BASE_URL', 'SUPABASE_PRESIGN_EXPIRES_IN',
+    'SUPABASE_S3_BUCKET', 'SUPABASE_S3_PUBLIC_BASE_URL',
   ]);
-  const presignRaw = cfg.SUPABASE_PRESIGN_EXPIRES_IN;
   return {
     endpoint: cfg.SUPABASE_S3_ENDPOINT || undefined,
     region: cfg.SUPABASE_S3_REGION || undefined,
@@ -225,7 +225,6 @@ async function resolveSupabaseConfig() {
     secretAccessKey: cfg.SUPABASE_S3_SECRET_ACCESS_KEY || undefined,
     bucket: cfg.SUPABASE_S3_BUCKET || undefined,
     publicBaseUrl: cfg.SUPABASE_S3_PUBLIC_BASE_URL || undefined,
-    presignExpiresIn: presignRaw ? parseInt(presignRaw, 10) : undefined,
   };
 }
 
@@ -386,6 +385,16 @@ async function getBackendStatuses() {
 // Backend başına config şeması — UI'da hangi alanların gösterileceğini belirler.
 // (SECRET_FIELDS yukarıda, SUPPORTED_BACKENDS altında tanımlı — resolveConfigKeys
 //  onu kullanır, bu yüzden önde tanımlandı.)
+// Backend başına config şeması — UI'da hangi alanların gösterileceğini belirler.
+// (SECRET_FIELDS yukarıda, SUPPORTED_BACKENDS altında tanımlı — resolveConfigKeys
+//  onu kullanır, bu yüzden önde tanımlandı.)
+//
+// NOT: Presigned URL ömrü (R2_PRESIGN_EXPIRES_IN / SUPABASE_PRESIGN_EXPIRES_IN)
+// artık burada YOK. İndirme linkinin geçerlilik süresi, kullanıcının upload
+// sırasında seçtiği "expire" süresinden (files.expire_at - now) türetilir — bkz.
+// services/download-service.js. Bu admin alanları eskiden ölüydü (hardcoded 3600
+// tarafından override ediliyordu); kaldırıldılar ki "bu ne alaka?" kafa
+// karışıklığı yaratmasınlar.
 const BACKEND_CONFIG_SCHEMA = {
   local: [],
   r2: [
@@ -394,7 +403,6 @@ const BACKEND_CONFIG_SCHEMA = {
     { key: 'R2_SECRET_ACCESS_KEY', label: 'Secret Access Key', secret: true, placeholder: 'R2 API secret' },
     { key: 'R2_BUCKET_NAME', label: 'Bucket Name', secret: false, placeholder: 'my-filesfly-bucket' },
     { key: 'R2_PUBLIC_BASE_URL', label: 'Public Base URL (opsiyonel)', secret: false, placeholder: 'https://<id>.r2.dev' },
-    { key: 'R2_PRESIGN_EXPIRES_IN', label: 'Presigned URL Süresi (sn)', secret: false, placeholder: '3600' },
   ],
   supabase: [
     { key: 'SUPABASE_S3_ENDPOINT', label: 'S3 Endpoint', secret: false, placeholder: 'https://<project>.supabase.co/storage/v1/s3' },
@@ -403,7 +411,6 @@ const BACKEND_CONFIG_SCHEMA = {
     { key: 'SUPABASE_S3_SECRET_ACCESS_KEY', label: 'Secret Access Key', secret: true, placeholder: 'S3 secret' },
     { key: 'SUPABASE_S3_BUCKET', label: 'Bucket Name', secret: false, placeholder: 'filesfly' },
     { key: 'SUPABASE_S3_PUBLIC_BASE_URL', label: 'Public Base URL (opsiyonel)', secret: false, placeholder: 'https://<project>.supabase.co/storage/v1/object/public/' },
-    { key: 'SUPABASE_PRESIGN_EXPIRES_IN', label: 'Presigned URL Süresi (sn)', secret: false, placeholder: '3600' },
   ],
 };
 
@@ -507,10 +514,11 @@ async function setBackendConfig(backend, updates, auditCtx) {
     updated.push(key);
   }
 
-  // Provider cache'ini invalidate et — bir sonraki getProvider yeni değerleri okur
-  if (updated.length > 0) {
-    invalidateProvider(backend);
-  }
+  // Provider cache'ini invalidate et — bir sonraki getProvider yeni değerleri okur.
+  // Koşulsuz yapılır: güncellenen alan olmasa bile (örn. kullanıcı değerleri değiştirmeden
+  // Kaydet'e bastı) cache'i tazelemek zararsızdır ve eski/credential'sız bir provider'ın
+  // cache'te kalıp "Uygula" sırasında yanlış döndürmesini önler.
+  invalidateProvider(backend);
 
   // Audit log (opsiyonel — admin route'tan auditCtx verilirse)
   if (auditCtx && auditCtx.adminUser && updated.length > 0) {
