@@ -122,7 +122,8 @@ function showAdmin() {
   // Token'dan username çıkar
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
-    DOM.adminUsername.textContent = `👤 ${payload.sub}`;
+    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+    DOM.adminUsername.innerHTML = `${iconSvg} ${escapeHtml(payload.sub)}`;
   } catch {
     DOM.adminUsername.textContent = '';
   }
@@ -320,7 +321,8 @@ async function loadFiles(page = 1) {
     } else {
       DOM.filesTableBody.innerHTML = data.files.map(f => {
         const expired = new Date(f.expire_at) < new Date();
-        const timeLeft = expired ? '❌ Süresi doldu' : getTimeLeft(f.expire_at);
+        const expiredSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="color:var(--color-error);vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+        const timeLeft = expired ? `${expiredSvg} Süresi doldu` : getTimeLeft(f.expire_at);
         const isImage = f.mime_type && f.mime_type.startsWith('image/');
         const icon = getFileIcon(f.mime_type);
         const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
@@ -343,8 +345,12 @@ async function loadFiles(page = 1) {
             <td>${f.mime_type || '-'}</td>
             <td>${timeLeft}</td>
             <td>
-              <button class="btn btn-ghost btn-sm preview-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}">👁️</button>
-              <button class="btn btn-ghost btn-sm delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}">🗑️</button>
+              <button class="btn btn-ghost btn-sm btn-icon preview-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Önizle" aria-label="Önizle">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+              <button class="btn btn-ghost btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
             </td>
           </tr>
         `;
@@ -388,7 +394,14 @@ DOM.filesNextBtn.addEventListener('click', () => loadFiles(filesPage + 1));
 
 async function openPreview(fileId, filename) {
   previewFileId = fileId;
-  DOM.previewTitle.textContent = `👁️ Dosya Önizleme: ${filename}`;
+  // Preserve the SVG icon in the title if present
+  const titleIcon = DOM.previewTitle.querySelector('svg');
+  const titleIconHtml = titleIcon ? titleIcon.outerHTML : '';
+  if (titleIconHtml) {
+    DOM.previewTitle.innerHTML = titleIconHtml + ` Dosya Önizleme: ${escapeHtml(filename)}`;
+  } else {
+    DOM.previewTitle.textContent = `Dosya Önizleme: ${filename}`;
+  }
   DOM.previewContent.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
   DOM.previewPanel.classList.remove('hidden');
   document.body.style.overflow = 'hidden'; // Scroll lock
@@ -403,7 +416,7 @@ async function openPreview(fileId, filename) {
       case 'text':
         DOM.previewContent.innerHTML = `<pre>${escapeHtml(data.content)}</pre>`;
         if (data.truncated) {
-          DOM.previewContent.innerHTML += '<p class="text-muted text-xs mt-1">⚠️ Dosya çok büyük, sadece ilk 100KB gösteriliyor.</p>';
+          DOM.previewContent.innerHTML += '<p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px;color:#f59e0b"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Dosya çok büyük, sadece ilk 100KB gösteriliyor.</p>';
         }
         break;
 
@@ -420,7 +433,7 @@ async function openPreview(fileId, filename) {
               onerror="if(this.src!=='${data.full_url}'){this.src='${data.full_url}'}"
             >
           </a>
-          <p class="text-muted text-xs mt-1">📋 Tam çözünürlük için resme tıkla (${formatSize(parseInt(data.total_size))})</p>
+          <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Tam çözünürlük için resme tıkla (${formatSize(parseInt(data.total_size))})</p>
         `;
         break;
       }
@@ -533,9 +546,12 @@ async function loadBannedIPs() {
               <td>${escapeHtml(ip.reason || '-')}</td>
               <td>${new Date(ip.banned_at).toLocaleDateString('tr-TR')}</td>
               <td>${ip.expires_at ? new Date(ip.expires_at).toLocaleString('tr-TR') : 'Kalıcı'}</td>
-              <td>
-                <button class="btn btn-ghost btn-sm unban-btn" data-hash="${ip.ip_hash}">✅ Kaldır</button>
-              </td>
+                <td>
+                  <button class="btn btn-ghost btn-sm unban-btn" data-hash="${ip.ip_hash}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>
+                    Kaldır
+                  </button>
+                </td>
             </tr>
           `).join('')}
         </tbody>
@@ -721,7 +737,7 @@ function formatSize(bytes) {
 
 function getTimeLeft(expireAt) {
   const diffMs = new Date(expireAt) - new Date();
-  if (diffMs <= 0) return '❌ Süresi doldu';
+  if (diffMs <= 0) return '<span style="color:var(--color-error)">Süresi doldu</span>';
 
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -732,14 +748,15 @@ function getTimeLeft(expireAt) {
 }
 
 function getFileIcon(mimeType) {
-  if (!mimeType) return '📄';
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType.startsWith('video/')) return '🎬';
-  if (mimeType.startsWith('audio/')) return '🎵';
-  if (mimeType.includes('pdf')) return '📕';
-  if (mimeType.includes('zip') || mimeType.includes('rar')) return '📦';
-  if (mimeType.startsWith('text/')) return '📝';
-  return '📄';
+  const svg = (path) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">${path}</svg>`;
+  if (!mimeType) return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>');
+  if (mimeType.startsWith('image/')) return svg('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>');
+  if (mimeType.startsWith('video/')) return svg('<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>');
+  if (mimeType.startsWith('audio/')) return svg('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>');
+  if (mimeType.includes('pdf')) return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>');
+  if (mimeType.includes('zip') || mimeType.includes('rar')) return svg('<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>');
+  if (mimeType.startsWith('text/')) return svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>');
+  return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>');
 }
 
 function truncate(str, maxLen) {

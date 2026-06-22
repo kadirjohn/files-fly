@@ -190,16 +190,27 @@ DOM.passwordToggle.addEventListener('change', () => {
 // =========================================================================
 
 function getFileIcon(mimeType, filename) {
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType.startsWith('video/')) return '🎬';
-  if (mimeType.startsWith('audio/')) return '🎵';
-  if (mimeType.includes('pdf')) return '📕';
-  if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar') || mimeType.includes('gzip')) return '📦';
-  if (mimeType.includes('text') || mimeType.includes('javascript') || mimeType.includes('json') || mimeType.includes('xml')) return '📝';
-  if (mimeType.includes('word') || mimeType.includes('document')) return '📄';
-  if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
-  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📽️';
-  return '📄';
+  // Returns inline SVG HTML string for the given mime type
+  const svg = (path, extra) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" ${extra||''}>${path}</svg>`;
+  if (mimeType.startsWith('image/'))
+    return svg('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>');
+  if (mimeType.startsWith('video/'))
+    return svg('<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>');
+  if (mimeType.startsWith('audio/'))
+    return svg('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>');
+  if (mimeType.includes('pdf'))
+    return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>');
+  if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar') || mimeType.includes('gzip'))
+    return svg('<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>');
+  if (mimeType.includes('text') || mimeType.includes('javascript') || mimeType.includes('json') || mimeType.includes('xml'))
+    return svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>');
+  if (mimeType.includes('word') || mimeType.includes('document'))
+    return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>');
+  if (mimeType.includes('sheet') || mimeType.includes('excel'))
+    return svg('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>');
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint'))
+    return svg('<path d="M3 3h18v12H3z"/><path d="M8 21l4-6 4 6"/><path d="M3 15h18"/>');
+  return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>');
 }
 
 // =========================================================================
@@ -756,8 +767,12 @@ function showToast(message, type = 'info') {
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
 
-  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
-  toast.innerHTML = `<span aria-hidden="true">${icons[type] || 'ℹ️'}</span> ${message}`;
+  const icons = {
+    success: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-success)"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-error)"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    info:    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-upload)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  };
+  toast.innerHTML = `<span aria-hidden="true">${icons[type] || icons.info}</span> ${message}`;
 
   DOM.toastContainer.appendChild(toast);
 
@@ -1115,24 +1130,30 @@ function initThemeToggle() {
   const toggleBtn = document.getElementById('theme-toggle');
   if (!toggleBtn) return;
 
+  const darkIcon = toggleBtn.querySelector('.icon-theme-dark');
+  const lightIcon = toggleBtn.querySelector('.icon-theme-light');
+
+  function setTheme(isLight) {
+    if (isLight) {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('filesfly_theme', 'light');
+      if (darkIcon) darkIcon.style.display = 'none';
+      if (lightIcon) lightIcon.style.display = '';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('filesfly_theme', 'dark');
+      if (darkIcon) darkIcon.style.display = '';
+      if (lightIcon) lightIcon.style.display = 'none';
+    }
+  }
+
   // localStorage'dan tercihi oku
   const saved = localStorage.getItem('filesfly_theme');
-  if (saved === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
-    toggleBtn.textContent = '☀️';
-  }
+  if (saved === 'light') setTheme(true);
 
   toggleBtn.addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme');
-    if (current === 'light') {
-      document.documentElement.removeAttribute('data-theme');
-      localStorage.setItem('filesfly_theme', 'dark');
-      toggleBtn.textContent = '🌓';
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('filesfly_theme', 'light');
-      toggleBtn.textContent = '☀️';
-    }
+    setTheme(current !== 'light');
   });
 }
 

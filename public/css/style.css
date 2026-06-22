@@ -155,10 +155,15 @@
     cursor: pointer;
     transition: all var(--transition-fast);
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
 }
 .theme-toggle:hover {
     background: var(--color-surface);
     border-color: var(--color-border-active);
+    color: var(--color-text-main);
 }
 
 /* -------------------------------------------------------------------------
@@ -527,12 +532,17 @@ h3 { font-size: 1.25rem; }
     font-size: 3rem;
     margin-bottom: 1rem;
     opacity: 0.6;
-    transition: opacity var(--transition-normal);
+    transition: opacity var(--transition-normal), transform var(--transition-normal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-primary);
 }
 
 .drop-zone:hover .drop-zone-icon,
 .drop-zone.drag-over .drop-zone-icon {
     opacity: 1;
+    transform: translateY(-4px);
 }
 
 .drop-zone-title {
@@ -645,11 +655,26 @@ h3 { font-size: 1.25rem; }
     font-size: 3rem;
     text-align: center;
     margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-success);
+    animation: icon-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .error-icon {
     font-size: 3rem;
     margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-error);
+}
+
+@keyframes icon-pop {
+    0% { transform: scale(0.5); opacity: 0; }
+    70% { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .success-message {
@@ -833,6 +858,16 @@ h3 { font-size: 1.25rem; }
 .file-item-icon {
     font-size: 1.5rem;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+}
+
+.file-item-deleted {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
 }
 
 /* Admin dosya listesinde image thumbnail (emoji yerine gerçek küçük resim) */
@@ -1135,9 +1170,172 @@ h3 { font-size: 1.25rem; }
 
 .login-card { max-width: 400px; margin: 3rem auto; }
 
-.empty-icon { font-size: 3rem; margin-bottom: 1rem; }
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    opacity: 0.5;
+}
 
 .hidden { display: none !important; }
+
+/* -------------------------------------------------------------------------
+   Nav Link with SVG Icon
+   ------------------------------------------------------------------------- */
+.nav-link-files {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+.nav-link-files:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+
+/* -------------------------------------------------------------------------
+   Admin User Badge
+   ------------------------------------------------------------------------- */
+.admin-user-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
+    background: rgba(var(--color-primary-rgb), 0.1);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--color-primary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+/* -------------------------------------------------------------------------
+   Flex Icon Title (h3 with leading SVG icon)
+   ------------------------------------------------------------------------- */
+.flex-icon-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.flex-icon-title svg {
+    color: var(--color-primary);
+    flex-shrink: 0;
+}
+
+/* -------------------------------------------------------------------------
+   Search Input with Icon
+   ------------------------------------------------------------------------- */
+.search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.search-icon {
+    position: absolute;
+    left: 0.85rem;
+    color: var(--color-text-muted);
+    pointer-events: none;
+    flex-shrink: 0;
+}
+.search-with-icon {
+    padding-left: 2.4rem;
+}
+
+/* -------------------------------------------------------------------------
+   Admin Login Icon
+   ------------------------------------------------------------------------- */
+.login-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(var(--color-primary-rgb), 0.12);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+    margin: 0 auto 1.5rem;
+    color: var(--color-primary);
+    animation: icon-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* -------------------------------------------------------------------------
+   Inline Spinner (uploading title)
+   ------------------------------------------------------------------------- */
+.spinner-inline {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(var(--color-upload-rgb), 0.3);
+    border-top-color: var(--color-upload);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+}
+.uploading-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* -------------------------------------------------------------------------
+   Loading State (session.html)
+   ------------------------------------------------------------------------- */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2rem 0;
+}
+
+/* -------------------------------------------------------------------------
+   Password Notice (flex with icon)
+   ------------------------------------------------------------------------- */
+.password-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem 1rem;
+}
+
+/* -------------------------------------------------------------------------
+   Admin Tab enhanced (icon + text)
+   ------------------------------------------------------------------------- */
+.admin-tab {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 0.4rem;
+}
+.admin-tab svg {
+    transition: color var(--transition-fast);
+}
+.admin-tab.active svg {
+    color: var(--color-primary);
+}
+
+/* -------------------------------------------------------------------------
+   Stat Card enhanced
+   ------------------------------------------------------------------------- */
+.stat-card {
+    transition: all var(--transition-normal);
+}
+.stat-card:hover {
+    border-color: var(--color-border-active);
+    box-shadow: var(--shadow-sm), var(--shadow-glow);
+    transform: translateY(-2px);
+}
 
 /* -------------------------------------------------------------------------
    Responsive
