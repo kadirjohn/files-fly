@@ -8,7 +8,8 @@
 const fs = require('fs');
 const path = require('path');
 const { pipeline } = require('stream/promises');
-const { UPLOADS_DIR } = require('../server');
+
+const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
 
 // =========================================================================
 // Temel İşlemler

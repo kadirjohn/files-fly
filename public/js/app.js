@@ -143,7 +143,7 @@ function handleFileSelect(file) {
   if (file.type.startsWith('image/')) {
     const reader = new FileReader();
     reader.onload = (e) => {
-      DOM.previewIcon.innerHTML = `<img src="${e.target.result}" alt="preview" style="width:48px;height:48px;object-fit:cover;border-radius:8px;">`;
+      DOM.previewIcon.innerHTML = `<img src="${e.target.result}" alt="preview" class="preview-thumb">`;
     };
     reader.readAsDataURL(file.slice(0, 1024 * 100)); // İlk 100KB thumbnail için
   } else {
@@ -1410,4 +1410,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Parola korumalı dosya decrypt modu kontrolü
   checkDecryptMode();
+
+  // Service Worker registration (PWA) — disabled until OOM resolved
+  // if ('serviceWorker' in navigator) {
+  //   navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // }
 });

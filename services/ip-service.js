@@ -3,23 +3,12 @@
  *
  * IP adreslerini plaintext saklamak yerine SHA-256 HMAC ile hash'ler.
  *
- * Neden:
- * - CGNAT/Dinamik IP: Aynı IP'den yüzlerce farklı kullanıcı çıkabilir
- * - KVKK/GDPR: IP adresleri kişisel veri (PII) kabul edilir
- * - VPN/Proxy: Farklı kullanıcılar aynı IP ile görünebilir
- *
- * Çözüm:
- * - Kullanıcı tanımlama: Session cookie (UUID) — IP'den bağımsız
- * - Dosya erişimi: Benzersiz, tahmin edilemez link (UUID)
- * - Audit/Abuse: IP hash'lenerek saklanır, plaintext asla
- * - Rate limiting: In-memory, hash'li IP ile
- * - IP ban: Hash'li IP ile eşleştirme, TTL destekli
- *
  * NOT: isIPBanned() hash'li IP kabul eder (rate-limiter'dan çağrılırken).
  *      banIP()/unbanIP() plaintext IP kabul eder (admin panelden çağrılırken).
  */
 
 const crypto = require('crypto');
+const { query } = require('./database');
 
 // =========================================================================
 // Yapılandırma
@@ -135,8 +124,6 @@ function getHashedClientIP(req) {
  * @returns {Promise<boolean>} - Yasaklıysa true
  */
 async function isIPBanned(ipHash) {
-  const { query } = require('./database');
-
   try {
     // Süresi dolmamış ban kaydı var mı?
     const result = await query(
@@ -161,7 +148,6 @@ async function isIPBanned(ipHash) {
  * @returns {Promise<Object>}
  */
 async function banIP(ip, reason, bannedBy, durationHours = null) {
-  const { query } = require('./database');
   const hashedIP = hashIP(ip);
 
   const expiresAt = durationHours
@@ -185,7 +171,6 @@ async function banIP(ip, reason, bannedBy, durationHours = null) {
  * @returns {Promise<boolean>}
  */
 async function unbanIP(ip) {
-  const { query } = require('./database');
   const hashedIP = hashIP(ip);
 
   const result = await query(
@@ -202,8 +187,6 @@ async function unbanIP(ip) {
  * @returns {Promise<boolean>}
  */
 async function unbanIPByHash(ipHash) {
-  const { query } = require('./database');
-
   const result = await query(
     `DELETE FROM banned_ips WHERE ip_hash = $1`,
     [ipHash]
@@ -218,8 +201,6 @@ async function unbanIPByHash(ipHash) {
  * @returns {Promise<Array>}
  */
 async function listBannedIPs() {
-  const { query } = require('./database');
-
   const result = await query(
     `SELECT ip_hash, reason, banned_at, banned_by, expires_at
      FROM banned_ips
@@ -239,8 +220,6 @@ async function listBannedIPs() {
  * Her 30 dakikada bir otomatik çalışır.
  */
 async function cleanupExpiredBans() {
-  const { query } = require('./database');
-
   try {
     const result = await query(
       `DELETE FROM banned_ips WHERE expires_at IS NOT NULL AND expires_at < NOW()`

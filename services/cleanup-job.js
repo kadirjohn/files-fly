@@ -15,7 +15,8 @@ const fs = require('fs');
 const path = require('path');
 const { query } = require('./database');
 const { getConfig } = require('./config-service');
-const { UPLOADS_DIR } = require('../server');
+
+const UPLOADS_DIR = process.env.UPLOADS_DIR || '/data/uploads';
 
 // =========================================================================
 // Yapılandırma

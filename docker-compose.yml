@@ -16,6 +16,7 @@ services:
     environment:
       DATABASE_URL: postgresql://filesfly:filesfly_secret@postgres:5432/filesfly
       NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=4096
       JWT_SECRET: changeme-in-production       # CHANGE THIS! Generate with: openssl rand -base64 64
       IP_HASH_SECRET: changeme-ip-secret       # CHANGE THIS! Generate with: openssl rand -base64 64
       BASE_URL: http://localhost:9392          # Change to your actual domain in production

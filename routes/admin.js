@@ -309,7 +309,8 @@ addAdminRoute('DELETE', '/api/admin/ban-ip-hash/:hash', async (req, res, params,
 // GET /api/admin/config — Config Listesi
 // =========================================================================
 
-addAdminRoute('GET', '/api/admin/config', async (req, res, params, body) => {
+// Public config endpoint (no auth — used by main page to read max_file_size_mb, chunk_size_mb)
+addRoute('GET', '/api/admin/config', async (req, res, params, body) => {
   try {
     const config = await getAllConfig();
     sendJSON(res, 200, { config });

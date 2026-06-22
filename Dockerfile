@@ -1,5 +1,8 @@
 FROM node:22-alpine
 
+# Set heap limit at image level (more reliable than CMD arg or compose env)
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # node:22-alpine already has a non-root 'node' user (UID 1000, GID 1000).
 # We use that instead of creating a new one to avoid GID conflicts.
 
@@ -27,6 +30,6 @@ USER node
 EXPOSE 9392
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9392/ || exit 1
+    CMD node -e "require('http').get('http://localhost:9392/',r=>{process.exit(r.statusCode===200?0:1)})"
 
-CMD ["node", "server.js"]
+CMD ["node", "--max-old-space-size=4096", "server.js"]

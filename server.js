@@ -17,6 +17,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// Middleware references — set in start() after DB is ready
+let rateLimitMiddleware = null;
+let sessionMiddleware = null;
+
 // =========================================================================
 // Yapılandırma
 // =========================================================================
@@ -71,7 +75,7 @@ function setSecurityHeaders(res) {
     "style-src 'self' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: blob:; " +
-    "connect-src 'self'; " +
+    "connect-src 'self' https://unpkg.com https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; " +
     "media-src 'self'; " +
     "frame-ancestors 'none';"
   );
@@ -230,34 +234,79 @@ async function handleRoute(req, res, urlPath) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     const contentType = req.headers['content-type'] || '';
+    const contentLength = parseInt(req.headers['content-length'] || '0');
+
+    // Hard body size limit: 110MB (100MB file + multipart overhead)
+    const MAX_BODY = 110 * 1024 * 1024;
+    if (contentLength > MAX_BODY) {
+      resolve(null);
+      return;
+    }
+
+    // For multipart uploads, buffer the entire body so parseMultipart can work on it.
+    if (contentType.includes('multipart/form-data')) {
+      const chunks = [];
+      let totalSize = 0;
+      let resolved = false;
+
+      const done = (value) => {
+        if (!resolved) { resolved = true; resolve(value); }
+      };
+
+      req.on('data', chunk => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY) {
+          // Drain remaining data without buffering, resolve null
+          req.resume();
+          done(null);
+          return;
+        }
+        if (!resolved) chunks.push(chunk);
+      });
+
+      req.on('end', () => {
+        if (resolved) return;
+        if (totalSize === 0) { done(null); return; }
+        done(Buffer.concat(chunks));
+      });
+
+      req.on('error', (err) => {
+        if (!resolved) { resolved = true; reject(err); }
+      });
+      return;
+    }
+
+    // For JSON and other bodies, read normally
     const chunks = [];
+    let totalSize = 0;
 
-    req.on('data', chunk => chunks.push(chunk));
+    req.on('data', chunk => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY) {
+        req.resume();
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+
     req.on('end', () => {
-      const raw = Buffer.concat(chunks);
-
-      if (raw.length === 0) {
+      if (totalSize === 0) {
         resolve(null);
         return;
       }
 
-      // JSON body
+      const raw = Buffer.concat(chunks);
+
       if (contentType.includes('application/json')) {
         try {
           resolve(JSON.parse(raw.toString('utf-8')));
         } catch (err) {
-          resolve(null); // Geçersiz JSON → null
+          resolve(null);
         }
         return;
       }
 
-      // multipart/form-data → raw buffer olarak bırak (upload handler parse edecek)
-      if (contentType.includes('multipart/form-data')) {
-        resolve(raw);
-        return;
-      }
-
-      // Diğer: string olarak döndür
       resolve(raw.toString('utf-8'));
     });
 
@@ -313,6 +362,11 @@ function parseURL(rawUrl) {
 // =========================================================================
 
 const server = http.createServer(async (req, res) => {
+  // Handle Expect: 100-continue (Node.js doesn't do this automatically)
+  if (req.headers.expect === '100-continue') {
+    res.writeContinue();
+  }
+
   // Güvenlik header'larını her response'a ekle
   setSecurityHeaders(res);
 
@@ -330,7 +384,6 @@ const server = http.createServer(async (req, res) => {
   // 1. Rate Limiter — sadece API route'larına uygula (statik dosyaları sayma)
   if (urlPath.startsWith('/api/')) {
     try {
-      const { rateLimitMiddleware } = require('./middleware/rate-limiter');
       const rateLimited = await rateLimitMiddleware(req, res);
       if (!rateLimited) return; // 403 veya 429 gönderildi
     } catch (err) {
@@ -341,7 +394,6 @@ const server = http.createServer(async (req, res) => {
 
   // 2. Session — Cookie-based kullanıcı oturumu (her istekte)
   try {
-    const { sessionMiddleware } = require('./middleware/session');
     await sessionMiddleware(req, res);
   } catch (err) {
     console.error('[Server] Session middleware error:', err.message);
@@ -405,6 +457,17 @@ async function start() {
   } catch (err) {
     console.error('[Server] Database initialization failed:', err.message);
     console.error('[Server] Starting without database — some features will be unavailable.');
+  }
+
+  // Middleware'leri yükle (DB hazır olduktan sonra)
+  try {
+    const rl = require('./middleware/rate-limiter');
+    const sm = require('./middleware/session');
+    rateLimitMiddleware = rl.rateLimitMiddleware;
+    sessionMiddleware = sm.sessionMiddleware;
+    console.log('[Server] Middleware loaded.');
+  } catch (err) {
+    console.error('[Server] Error loading middleware:', err.message);
   }
 
   // Route'ları yükle (her route modülü kendini register eder)

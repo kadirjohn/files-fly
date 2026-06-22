@@ -55,6 +55,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // Skip cross-origin requests (Google Fonts, CDNs, etc.) — CSP handles those
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   // API isteklerini cache'leme
   if (url.pathname.startsWith('/api/')) {
     return; // Network-only

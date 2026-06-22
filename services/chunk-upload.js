@@ -19,7 +19,8 @@ const { query } = require('./database');
 const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
 const { getConfig } = require('./config-service');
 const { getMimeType, isMimeTypeAllowed, validateFileSize } = require('./upload-service');
-const { BASE_URL } = require('../server');
+
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 9392}`;
 
 // =========================================================================
 // Geçici Chunk Dizini

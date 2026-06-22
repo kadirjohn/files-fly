@@ -574,6 +574,14 @@ h3 { font-size: 1.25rem; }
     justify-content: center;
     font-size: 1.5rem;
     flex-shrink: 0;
+    overflow: hidden;
+}
+
+.file-preview-icon img.preview-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
 }
 
 .file-preview-info {

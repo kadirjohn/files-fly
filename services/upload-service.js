@@ -16,7 +16,8 @@ const path = require('path');
 const { query } = require('./database');
 const { writeFile, ensureUploadDir, UPLOADS_DIR } = require('./storage-service');
 const { getConfig } = require('./config-service');
-const { BASE_URL } = require('../server');
+
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 9392}`;
 
 // =========================================================================
 // Multipart Form Data Parser
@@ -37,30 +38,41 @@ function parseMultipart(body, contentType) {
     throw new Error('No boundary found in Content-Type');
   }
 
-  const boundary = boundaryMatch[1] || boundaryMatch[2];
-  const boundaryBuffer = Buffer.from('--' + boundary);
-  const endBoundary = Buffer.from('--' + boundary + '--');
+  const boundary = (boundaryMatch[1] || boundaryMatch[2]).trim();
+  const delimiter = Buffer.from('\r\n--' + boundary);
   const newline = Buffer.from('\r\n\r\n');
 
   const fields = {};
   const files = [];
-
-  // Body'yi boundary'lere göre böl
-  let pos = 0;
   const parts = [];
 
+  // Find the first boundary (preamble skip)
+  // RFC 2046: body starts with --boundary\r\n
+  const firstBoundary = Buffer.from('--' + boundary);
+  let pos = body.indexOf(firstBoundary);
+  if (pos === -1) return { fields, files };
+
+  // Skip past first boundary + CRLF
+  pos += firstBoundary.length;
+  if (body[pos] === 0x0d && body[pos + 1] === 0x0a) pos += 2; // skip \r\n
+
+  // Parse each part by scanning for \r\n--boundary
   while (pos < body.length) {
-    const boundaryPos = body.indexOf(boundaryBuffer, pos);
-    if (boundaryPos === -1) break;
+    const delimPos = body.indexOf(delimiter, pos);
+    if (delimPos === -1) break; // no more delimiters
 
-    const nextPos = body.indexOf(boundaryBuffer, boundaryPos + boundaryBuffer.length);
-    const partEnd = nextPos === -1 ? body.indexOf(endBoundary, boundaryPos) : nextPos;
-
-    if (partEnd === -1) break;
-
-    const part = body.slice(boundaryPos + boundaryBuffer.length + 2, partEnd - 2); // \r\n atla
+    // The part content is from pos to delimPos
+    const part = body.slice(pos, delimPos);
     parts.push(part);
-    pos = partEnd;
+
+    // Advance past delimiter
+    pos = delimPos + delimiter.length;
+
+    // Check if this is the closing boundary (-- suffix)
+    if (body[pos] === 0x2d && body[pos + 1] === 0x2d) break; // '--'
+
+    // Skip \r\n after delimiter to reach next part headers
+    if (body[pos] === 0x0d && body[pos + 1] === 0x0a) pos += 2;
   }
 
   // Her parçayı parse et
