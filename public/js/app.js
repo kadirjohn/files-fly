@@ -177,10 +177,10 @@ DOM.clearFileBtn.addEventListener('click', () => {
 // Parola toggle
 DOM.passwordToggle.addEventListener('change', () => {
   if (DOM.passwordToggle.checked) {
-    DOM.passwordField.classList.remove('hidden');
+    DOM.passwordInput.removeAttribute('readonly');
     DOM.passwordInput.focus();
   } else {
-    DOM.passwordField.classList.add('hidden');
+    DOM.passwordInput.setAttribute('readonly', 'true');
     DOM.passwordInput.value = '';
   }
 });

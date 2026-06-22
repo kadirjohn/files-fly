@@ -47,13 +47,13 @@
     --grad-success: linear-gradient(135deg, #10b981, #34d399);
     --grad-glow: radial-gradient(circle, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.04) 50%, transparent 100%);
 
-    /* Shadows */
-    --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
-    --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
-    --shadow-lg: 0 16px 48px rgba(0,0,0,0.6);
-    --shadow-glow: 0 0 24px rgba(245,158,11,0.2);
-    --shadow-glow-upload: 0 0 16px rgba(59,130,246,0.3);
-    --shadow-glow-success: 0 0 16px rgba(16,185,129,0.3);
+    /* Shadows — muted glow for professional look */
+    --shadow-sm: 0 2px 6px rgba(0,0,0,0.35);
+    --shadow-md: 0 6px 24px rgba(0,0,0,0.45);
+    --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
+    --shadow-glow: 0 0 16px rgba(245,158,11,0.12);
+    --shadow-glow-upload: 0 0 12px rgba(59,130,246,0.2);
+    --shadow-glow-success: 0 0 12px rgba(16,185,129,0.18);
 
     /* Radius */
     --radius-sm: 8px;
@@ -323,6 +323,16 @@ h3 { font-size: 1.25rem; }
     height: 32px;
 }
 
+/* PNG logo image */
+.app-logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    border-radius: 6px;
+    display: block;
+    flex-shrink: 0;
+}
+
 .app-nav {
     display: flex;
     align-items: center;
@@ -356,13 +366,13 @@ h3 { font-size: 1.25rem; }
 }
 
 .glass-card:hover {
-    border-color: var(--color-border-active);
-    box-shadow: var(--shadow-md), var(--shadow-glow);
+    border-color: rgba(255,255,255,0.1);
+    box-shadow: var(--shadow-md);
 }
 
 .glass-card.active {
     border-color: var(--color-border-active);
-    box-shadow: var(--shadow-md), var(--shadow-glow);
+    box-shadow: var(--shadow-md);
 }
 
 /* -------------------------------------------------------------------------
@@ -393,10 +403,10 @@ h3 { font-size: 1.25rem; }
 .btn-primary {
     background: var(--grad-primary);
     color: #000;
-    box-shadow: var(--shadow-sm), var(--shadow-glow);
+    box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover:not(:disabled) {
-    box-shadow: var(--shadow-md), var(--shadow-glow);
+    box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
@@ -1114,10 +1124,23 @@ h3 { font-size: 1.25rem; }
 }
 
 .stat-card {
-    padding: 1.25rem;
+    padding: 1.5rem;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Semi-transparent SVG icon in top-right */
+.stat-card-icon {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    opacity: 0.07;
+    color: var(--color-primary);
+    pointer-events: none;
+    line-height: 0;
 }
 
 .stat-value {
@@ -1300,22 +1323,35 @@ h3 { font-size: 1.25rem; }
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: border-color var(--transition-fast), background var(--transition-fast);
+    user-select: none;
 }
 
 .storage-backend-option:hover:not(.disabled) {
-    border-color: var(--color-border-active);
+    border-color: rgba(255,255,255,0.1);
     background: var(--color-surface-hover);
+}
+
+.storage-backend-option.storage-backend-clickable:hover:not(.disabled) {
+    border-color: var(--color-border-active);
+    cursor: pointer;
 }
 
 .storage-backend-option.active {
     border-color: var(--color-primary);
     background: rgba(var(--color-primary-rgb), 0.06);
-    box-shadow: var(--shadow-glow);
 }
 
 .storage-backend-option.disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+/* Credential hint text below description */
+.storage-backend-cred-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-dark);
+    margin-top: 0.3rem;
+    font-style: italic;
 }
 
 .storage-backend-option input[type="radio"] {
@@ -1918,9 +1954,12 @@ h3 { font-size: 1.25rem; }
     transition: all var(--transition-normal);
 }
 .stat-card:hover {
-    border-color: var(--color-border-active);
-    box-shadow: var(--shadow-sm), var(--shadow-glow);
-    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.12);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+.stat-card:hover .stat-card-icon {
+    opacity: 0.12;
 }
 
 /* -------------------------------------------------------------------------
@@ -2069,11 +2108,16 @@ h3 { font-size: 1.25rem; }
 }
 
 .info-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-    border-radius: 10px;
-    padding: 0.875rem 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
     text-align: center;
+    transition: border-color var(--transition-fast);
+}
+
+.info-card:hover {
+    border-color: rgba(255,255,255,0.1);
 }
 
 [data-theme="light"] .info-card {
@@ -2227,3 +2271,134 @@ h3 { font-size: 1.25rem; }
         padding: 1.25rem 1rem;
     }
 }
+
+/* =========================================================================
+   Session Page — Files Fly Logo Block (above file list card)
+   ========================================================================= */
+.session-logo-block {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.25rem;
+}
+
+.session-page-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    border-radius: 12px;
+    opacity: 0.85;
+}
+
+/* =========================================================================
+   Password Toggle — Always-visible input (disabled until radio checked)
+   ========================================================================= */
+
+/* Container: expire select + password toggle side by side */
+.upload-options-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1.25rem;
+}
+
+.upload-options-row .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+@media (max-width: 600px) {
+    .upload-options-row {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+}
+
+/* Password always-visible container */
+.password-field-always {
+    position: relative;
+    margin-top: 0.5rem;
+}
+
+.password-field-always .form-input {
+    width: 100%;
+    transition: all var(--transition-fast);
+}
+
+/* Locked state: input looks greyed/disabled */
+.password-field-always .form-input[readonly] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--color-border);
+    background: rgba(255,255,255,0.02);
+}
+
+/* Unlocked state: normal active look */
+.password-field-always .form-input:not([readonly]) {
+    opacity: 1;
+    cursor: text;
+    border-color: var(--color-border-active);
+}
+
+/* Lock icon overlay (always visible, dimmed when locked) */
+.password-lock-icon {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-dark);
+    pointer-events: none;
+    transition: color var(--transition-fast), opacity var(--transition-fast);
+    opacity: 0.5;
+    display: flex;
+    align-items: center;
+}
+
+.password-field-always .form-input:not([readonly]) ~ .password-lock-icon {
+    color: var(--color-primary);
+    opacity: 0.8;
+}
+
+/* Checkbox label for password protection */
+.password-toggle-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    margin-bottom: 0.35rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    user-select: none;
+}
+
+.password-toggle-label-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   File info-card enhanced typography
+   ========================================================================= */
+.info-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--color-text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+}
+
+.info-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    word-break: break-word;
+    color: var(--color-text-main);
+}
+
+/* =========================================================================
+   ml-1 utility
+   ========================================================================= */
+.ml-1 { margin-left: 0.5rem; }

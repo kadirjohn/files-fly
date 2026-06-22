@@ -43,18 +43,8 @@
      ===================================================================== -->
 <header class="app-header">
     <a href="/" class="app-logo" aria-label="Files Fly Ana Sayfa">
-        <!-- Files Fly Logo SVG -->
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <defs>
-                <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#f59e0b"/>
-                    <stop offset="100%" stop-color="#fbbf24"/>
-                </linearGradient>
-            </defs>
-            <rect width="32" height="32" rx="8" fill="url(#logoGrad)"/>
-            <path d="M10 8h4l4 6v4l-4 6h-4l4-6v-4l-4-6z" fill="#0A0A0A"/>
-            <path d="M18 8h4l-4 16h-4l4-16z" fill="#0A0A0A" opacity="0.6"/>
-        </svg>
+        <!-- Files Fly Logo PNG -->
+        <img src="/filesfly-logo.png" alt="Files Fly" class="app-logo-img" aria-hidden="true">
         <span>Files Fly</span>
     </a>
     <nav class="app-nav">
@@ -90,19 +80,40 @@
                 Başlamak için dosyanızı yükleyin, ve ardından paylaşmak istediğiniz kişi ile paylaşın. Dosyalar belirlediğiniz süre dolunca otomatik silinecek.
             </p>
 
-            <!-- Saklama Süresi -->
-            <div class="form-group">
-                <label class="form-label" for="expire-select" data-i18n="expireLabel">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="icon-inline"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Saklama Süresi
-                </label>
-                <select id="expire-select" class="form-select" aria-label="Saklama süresi seçin">
-                    <option value="1" selected data-i18n="expire1h">1 Saat</option>
-                    <option value="6" data-i18n="expire6h">6 Saat</option>
-                    <option value="12" data-i18n="expire12h">12 Saat</option>
-                    <option value="24" data-i18n="expire24h">24 Saat (1 Gün)</option>
-                    <option value="48" data-i18n="expire48h">48 Saat (2 Gün)</option>
-                </select>
+            <!-- Saklama Süresi + Parola (yan yana) -->
+            <div class="upload-options-row">
+                <!-- Süre -->
+                <div class="form-group">
+                    <label class="form-label" for="expire-select" data-i18n="expireLabel">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="icon-inline"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Saklama Süresi
+                    </label>
+                    <select id="expire-select" class="form-select" aria-label="Saklama süresi seçin">
+                        <option value="1" selected data-i18n="expire1h">1 Saat</option>
+                        <option value="6" data-i18n="expire6h">6 Saat</option>
+                        <option value="12" data-i18n="expire12h">12 Saat</option>
+                        <option value="24" data-i18n="expire24h">24 Saat (1 Gün)</option>
+                        <option value="48" data-i18n="expire48h">48 Saat (2 Gün)</option>
+                    </select>
+                </div>
+
+                <!-- Parola Koruması -->
+                <div class="form-group">
+                    <label class="form-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="icon-inline"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Parola Koruması
+                    </label>
+                    <label class="password-toggle-label-row" id="password-toggle-label">
+                        <input type="checkbox" id="password-toggle">
+                        <span data-i18n="passwordToggle">Parola ile koru</span>
+                    </label>
+                    <div class="password-field-always">
+                        <input type="password" id="password-input" class="form-input" data-i18n-placeholder="passwordPlaceholder" placeholder="Parola girin..." autocomplete="new-password" readonly>
+                        <span class="password-lock-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </span>
+                    </div>
+                </div>
             </div>
 
             <!-- Drop Zone -->
@@ -127,18 +138,6 @@
                 <button class="btn btn-ghost btn-icon" id="clear-file-btn" title="Dosyayı kaldır" aria-label="Seçili dosyayı kaldır">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
-            </div>
-
-            <!-- Parola Koruması -->
-            <div class="mt-3">
-                <label class="form-checkbox" id="password-toggle-label">
-                    <input type="checkbox" id="password-toggle">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="icon-inline-shrink"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                    <span data-i18n="passwordToggle">Dosyaları parola ile koru</span>
-                </label>
-                <div id="password-field" class="hidden mt-1">
-                    <input type="password" id="password-input" class="form-input" data-i18n-placeholder="passwordPlaceholder" placeholder="Parola girin..." autocomplete="new-password">
-                </div>
             </div>
 
             <!-- Yükle Butonu -->

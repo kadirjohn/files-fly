@@ -282,22 +282,37 @@ async function loadDashboard() {
     // Stat kartları
     DOM.statsGrid.innerHTML = `
       <div class="stat-card">
+        <div class="stat-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
         <div class="stat-value">${data.total_files}</div>
         <div class="stat-label">Toplam Dosya</div>
       </div>
       <div class="stat-card">
+        <div class="stat-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
         <div class="stat-value">${data.active_files}</div>
         <div class="stat-label">Aktif Dosya</div>
       </div>
       <div class="stat-card">
+        <div class="stat-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
         <div class="stat-value">${formatSize(data.total_size_bytes)}</div>
         <div class="stat-label">Toplam Boyut</div>
       </div>
       <div class="stat-card">
+        <div class="stat-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
         <div class="stat-value">${data.today_uploads}</div>
-        <div class="stat-label">Bugün</div>
+        <div class="stat-label">Bugün Yüklenen</div>
       </div>
       <div class="stat-card">
+        <div class="stat-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
         <div class="stat-value">${data.unique_sessions_7d}</div>
         <div class="stat-label">Benzersiz Kullanıcı (7g)</div>
       </div>
@@ -955,12 +970,9 @@ async function loadSettings() {
     storageBackendsCache = (storageData && storageData.backends) || [];
     const activeBackend = (storageData && storageData.active_backend) || config.storage_backend || 'local';
 
-    // Storage backend seçici HTML'i — her backend için "Credential'ları Düzenle" butonu
+    // Storage backend seçici HTML'i — karta tıklayınca credential modal açılır
     const backendOptionsHtml = storageBackendsCache.map(b => {
       const isActive = b.backend === activeBackend;
-      // "Eksik deps" (AWS SDK yok) → gerçekten kullanılamaz, radio disabled.
-      // "Eksik credential" (SDK var ama key girilmemiş) → radio SEÇİLEBİLİR,
-      //   kullanıcı önce "Credential'ları Düzenle" ile key girmeli, sonra "Uygula".
       const hasMissingDeps = !!(b.missingDeps && b.missingDeps.length > 0);
       const trulyDisabled = hasMissingDeps;
       const statusLabel = b.available
@@ -968,32 +980,29 @@ async function loadSettings() {
                     : '<span class="storage-badge storage-badge-ok">Hazır</span>')
         : (hasMissingDeps
             ? `<span class="storage-badge storage-badge-error" title="${escapeHtml(b.error || '')}">Paket Eksik</span>`
-            : `<span class="storage-badge storage-badge-error" title="${escapeHtml(b.error || '')}">Credential Eksik</span>`);
-      const labels = { local: 'Yerel Disk', r2: 'Cloudflare R2', supabase: 'Supabase Storage' };
-      // Renkli backend etiketleri (CSS .storage-backend-tag-* ile)
+            : `<span class="storage-badge storage-badge-error" title="${escapeHtml(b.error || '')}">Yapılandırılmadı</span>`);
+      const labels = { local: 'Disk', r2: 'Cloudflare R2', supabase: 'Supabase Storage' };
       const labelHtml = `<span class="storage-backend-tag-${b.backend}">${labels[b.backend] || b.backend}</span>`;
       const desc = {
-        local: 'Dosyalar sunucu diskine yazılır. En basit, sıfır ek yapılandırma.',
-        r2: 'Cloudflare R2 bucket. S3-uyumlu, çıkış trafiği ücretsiz. Credential\'lar modal pencereden veya .env\'den.',
-        supabase: 'Supabase Storage bucket. S3-uyumlu endpoint. Credential\'lar modal pencereden veya .env\'den.',
+        local: 'Dosyalar sunucu diskine kaydedilir. Ek yapılandırma gerektirmez.',
+        r2: 'Cloudflare R2 bulut depolama. Çıkış trafik ücretsiz, S3-uyumlu API. Karttan bilgileri güncelleyin.',
+        supabase: 'Supabase Storage bulut depolama. S3-uyumlu endpoint. Karttan bilgileri güncelleyin.',
       };
-      // Local backend'in düzenlenecek credential'ı yok; R2/Supabase için buton göster.
-      // Buton HER ZAMAN tıklanabilir — tıklayınca MODAL popup açılır.
-      const credBtn = b.backend !== 'local'
-        ? `<button type="button" class="btn btn-ghost btn-sm storage-cred-btn" data-backend="${b.backend}" style="margin-top:0.5rem;">🔑 Credential'ları Düzenle</button>`
-        : '';
-      // Credential eksikse yardım metni göster
       const credHint = (!b.available && !hasMissingDeps && b.backend !== 'local')
-        ? '<div class="storage-backend-error">Önce "Credential\'ları Düzenle" ile bilgileri girin (modal açılır), sonra "Depolama Backend\'ini Uygula" ile aktifleştirin.</div>'
+        ? '<div class="storage-backend-error">Bağlanmak için bu karta tıklayın ve bilgilerinizi girin.</div>'
         : (hasMissingDeps ? `<div class="storage-backend-error">${escapeHtml(b.error)}${b.missingDeps ? ' — paketler: ' + escapeHtml(b.missingDeps.join(', ')) : ''}</div>` : '');
+      // Click-to-edit-credentials hint for R2/Supabase
+      const credClickHint = b.backend !== 'local'
+        ? `<div class="storage-backend-cred-hint">Bu karta tıklayınca bağlantı bilgileri menüsü açılır</div>`
+        : '';
       return `
-        <label class="storage-backend-option ${isActive ? 'active' : ''} ${trulyDisabled ? 'disabled' : ''}" data-backend="${b.backend}">
+        <label class="storage-backend-option ${isActive ? 'active' : ''} ${trulyDisabled ? 'disabled' : ''} ${b.backend !== 'local' ? 'storage-backend-clickable' : ''}" data-backend="${b.backend}">
           <input type="radio" name="storage_backend" value="${b.backend}" ${isActive ? 'checked' : ''} ${trulyDisabled ? 'disabled' : ''}>
           <div class="storage-backend-info">
             <div class="storage-backend-name">${labelHtml} ${statusLabel}</div>
             <div class="storage-backend-desc">${desc[b.backend] || ''}</div>
             ${credHint}
-            ${credBtn}
+            ${credClickHint}
           </div>
         </label>
       `;
@@ -1229,7 +1238,7 @@ async function loadStorageCredentialForm(backend) {
     return;
   }
   // Modal başlığını güncelle
-  const labels = { r2: 'Cloudflare R2', supabase: 'Supabase Storage', local: 'Yerel Disk' };
+  const labels = { r2: 'Cloudflare R2', supabase: 'Supabase Storage', local: 'Disk' };
   if (titleName) titleName.textContent = `${labels[backend] || backend} — Credential'lar`;
   // Modal box'a backend class'ı ekle (renkli kenarlık için)
   const modalBox = modal.querySelector('.storage-cred-modal-box');
@@ -1423,17 +1432,19 @@ async function saveStorageCredentials(backend) {
 // loadSettings her render'da yeni buton ürettiği için static listener yerine
 // event delegation kullanıyoruz (settings-form üzerinde).
 
-// Delegated listener: hem "Depolama Backend'ini Uygula" hem
-// "Credential'ları Düzenle" butonlarını yakalar (loadSettings her render'da
-// yeni butonlar ürettiği için event delegation kullanıyoruz).
+// Delegated listener: storage backend kart tıklaması (R2/Supabase → credential modal)
+// ve "Depolama Backend'ini Uygula" butonunu yakalar.
 DOM.settingsForm.addEventListener('click', async (e) => {
-  // "Credential'ları Düzenle" butonu (R2/Supabase)
-  const credBtn = e.target.closest('.storage-cred-btn');
-  if (credBtn) {
-    e.preventDefault();
-    const backend = credBtn.dataset.backend;
-    if (backend) await loadStorageCredentialForm(backend);
-    return;
+  // Storage backend kartına (R2/Supabase) tıklanınca credential modal aç
+  const backendCard = e.target.closest('.storage-backend-clickable');
+  if (backendCard) {
+    const backend = backendCard.dataset.backend;
+    // Radio tıklaması hariç (sadece kart body'sine tıklanınca)
+    if (e.target.type !== 'radio' && backend && backend !== 'local') {
+      e.preventDefault();
+      await loadStorageCredentialForm(backend);
+      return;
+    }
   }
 
   if (e.target.id !== 'storage-apply-btn') return;
