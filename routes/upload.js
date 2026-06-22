@@ -132,6 +132,7 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
         file_size: result.file_size,
         mime_type: result.mime_type,
         direct_url: result.direct_url,
+        preview_url: result.preview_url,
         expire_at: result.expire_at,
         is_encrypted: result.is_encrypted,
         created_at: result.created_at,

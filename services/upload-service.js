@@ -289,8 +289,10 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   // -----------------------------------------------------------------------
 
   const expireAt = new Date(Date.now() + expireHours * 60 * 60 * 1000).toISOString();
-  const directUrl = `${BASE_URL}/api/files/${fileId}/dl`;
-  const previewUrl = `${BASE_URL}/api/files/${fileId}`;
+  // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
+  // (BASE_URL hardcoded ngrok/production'da kırılıyordu; relative path her ortamda çalışır)
+  const directUrl = `/api/files/${fileId}/dl`;
+  const previewUrl = `/files/${fileId}`;
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,

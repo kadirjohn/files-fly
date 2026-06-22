@@ -321,13 +321,21 @@ async function loadFiles(page = 1) {
       DOM.filesTableBody.innerHTML = data.files.map(f => {
         const expired = new Date(f.expire_at) < new Date();
         const timeLeft = expired ? '❌ Süresi doldu' : getTimeLeft(f.expire_at);
+        const isImage = f.mime_type && f.mime_type.startsWith('image/');
         const icon = getFileIcon(f.mime_type);
         const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
+
+        // Image ise thumbnail — /api/files/:id/dl public endpoint kullan (sharp gerekmez)
+        // preview-img yerine dl endpoint: token gerektirmez, direkt resmi döndürür
+        const thumbSrc = isImage ? `/api/files/${f.id}/dl` : null;
+        const iconOrThumb = isImage && thumbSrc
+          ? `<img src="${thumbSrc}" alt="" loading="lazy" class="file-item-thumb" onerror="this.outerHTML='<span class=\\'file-item-icon\\'>${icon}</span>'">`
+          : `<span class="file-item-icon">${icon}</span>`;
 
         return `
           <tr>
             <td>
-              <span class="file-item-icon">${icon}</span>
+              ${iconOrThumb}
               <span title="${escapeHtml(f.filename)}">${truncate(f.filename, 30)}</span>
             </td>
             <td><span class="mono" title="${f.ip_hash}">${shortHash}</span></td>
@@ -383,7 +391,9 @@ async function openPreview(fileId, filename) {
   DOM.previewTitle.textContent = `👁️ Dosya Önizleme: ${filename}`;
   DOM.previewContent.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
   DOM.previewPanel.classList.remove('hidden');
+  document.body.style.overflow = 'hidden'; // Scroll lock
   DOM.previewDownloadBtn.href = `/api/files/${fileId}/dl`;
+  DOM.previewDownloadBtn.setAttribute('download', filename);
 
   try {
     const resp = await apiFetch(`/api/admin/files/${fileId}/preview`);
@@ -397,24 +407,23 @@ async function openPreview(fileId, filename) {
         }
         break;
 
-      case 'image':
-        // Thumbnail (sharp ile küçültülmüş) + tam çözünürlük linki
-        if (data.thumbnail_url) {
-          DOM.previewContent.innerHTML = `
-            <a href="${data.full_url}" target="_blank" rel="noopener" title="Tam çözünürlük aç">
-              <img src="${data.thumbnail_url}" alt="${escapeHtml(filename)}" style="max-width:100%;border-radius:8px;cursor:zoom-in;">
-            </a>
-            <p class="text-muted text-xs mt-1">📋 Thumbnail gösteriliyor — tam çözünürlük için tıkla (${formatSize(parseInt(data.total_size))})</p>
-          `;
-        } else {
-          // sharp yoksa fallback: doğrudan tam dosya
-          DOM.previewContent.innerHTML = `
-            <a href="${data.full_url}" target="_blank" rel="noopener">
-              <img src="${data.full_url}" alt="${escapeHtml(filename)}" style="max-width:100%;border-radius:8px;">
-            </a>
-          `;
-        }
+  // Image
+      case 'image': {
+        // Thumbnail tercih et, yoksa full URL göster (her ikisi de public /dl endpoint)
+        const imgSrc = (data.thumbnail_url && token)
+          ? data.thumbnail_url + '?token=' + encodeURIComponent(token)
+          : data.full_url;
+
+        DOM.previewContent.innerHTML = `
+          <a href="${data.full_url}" target="_blank" rel="noopener" title="Tam çözünürlük aç (${formatSize(parseInt(data.total_size))})">
+            <img src="${imgSrc}" alt="${escapeHtml(filename)}"
+              onerror="if(this.src!=='${data.full_url}'){this.src='${data.full_url}'}"
+            >
+          </a>
+          <p class="text-muted text-xs mt-1">📋 Tam çözünürlük için resme tıkla (${formatSize(parseInt(data.total_size))})</p>
+        `;
         break;
+      }
 
       case 'media':
         DOM.previewContent.innerHTML = `
@@ -444,9 +453,28 @@ async function openPreview(fileId, filename) {
   }
 }
 
-DOM.previewCloseBtn.addEventListener('click', () => {
+// Modal kapatma: ✕ butonu, overlay dışına tıklama, Escape tuşu
+function closePreview() {
   DOM.previewPanel.classList.add('hidden');
+  document.body.style.overflow = ''; // Scroll lock'u kaldır
   previewFileId = null;
+  // Video/audio durdur
+  const media = DOM.previewContent.querySelector('video, audio');
+  if (media) media.pause();
+}
+
+DOM.previewCloseBtn.addEventListener('click', closePreview);
+
+// Overlay'e (modal kutusu dışına) tıklayınca kapat
+DOM.previewPanel.addEventListener('click', (e) => {
+  if (e.target === DOM.previewPanel) closePreview();
+});
+
+// Escape tuşu ile kapat
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !DOM.previewPanel.classList.contains('hidden')) {
+    closePreview();
+  }
 });
 
 // Preview'dan silme

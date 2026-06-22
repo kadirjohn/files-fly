@@ -249,8 +249,9 @@ async function finalizeUpload(fileId, dir, metadata) {
   // Metadata'yı PG'ye Yaz
   // -----------------------------------------------------------------------
   const expireAt = new Date(Date.now() + finalExpireHours * 60 * 60 * 1000).toISOString();
-  const directUrl = `${BASE_URL}/api/files/${fileId}/dl`;
-  const previewUrl = `${BASE_URL}/api/files/${fileId}`;
+  // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
+  const directUrl = `/api/files/${fileId}/dl`;
+  const previewUrl = `/files/${fileId}`;
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,

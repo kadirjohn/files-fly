@@ -533,6 +533,7 @@ module.exports = {
   sendError,
   parseURL,
   parseBody,
+  serveStaticFile,
   PUBLIC_DIR,
   UPLOADS_DIR,
   BASE_URL,

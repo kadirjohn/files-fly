@@ -130,18 +130,7 @@
                 <button id="files-next-btn" class="btn btn-ghost btn-sm" disabled>▶</button>
             </div>
 
-            <!-- Önizleme Paneli -->
-            <div id="preview-panel" class="preview-panel hidden">
-                <div class="flex-between mb-2">
-                    <h3 id="preview-title">👁️ Dosya Önizleme</h3>
-                    <button id="preview-close-btn" class="btn btn-ghost btn-icon">✕</button>
-                </div>
-                <div id="preview-content" class="preview-content"></div>
-                <div class="flex gap-1 mt-2">
-                    <a id="preview-download-btn" class="btn btn-primary btn-sm" href="#" target="_blank">📥 İndir</a>
-                    <button id="preview-delete-btn" class="btn btn-danger btn-sm">🗑️ Sil</button>
-                </div>
-            </div>
+
         </div>
 
         <!-- ==============================================================
@@ -196,6 +185,21 @@
     </section>
 
 </main>
+
+<!-- Önizleme Modal (body altında — position:fixed doğru çalışsın) -->
+<div id="preview-panel" class="preview-panel hidden" role="dialog" aria-modal="true">
+    <div class="preview-modal-box">
+        <div class="preview-modal-header">
+            <h3 id="preview-title" class="preview-modal-title">👁️ Dosya Önizleme</h3>
+            <button id="preview-close-btn" class="preview-close-btn" aria-label="Kapat">✕</button>
+        </div>
+        <div id="preview-content" class="preview-content"></div>
+        <div class="preview-modal-actions">
+            <a id="preview-download-btn" class="btn btn-primary btn-sm" href="#" download>📥 İndir</a>
+            <button id="preview-delete-btn" class="btn btn-danger btn-sm">🗑️ Sil</button>
+        </div>
+    </div>
+</div>
 
 <script src="/js/admin.js"></script>
 

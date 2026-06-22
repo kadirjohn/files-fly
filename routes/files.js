@@ -5,8 +5,29 @@
  * GET /api/files/:id/dl  — Dosya indirme (stream, Range destekli)
  */
 
-const { addRoute, sendJSON, sendError } = require('../server');
+const { addRoute, sendJSON, sendError, serveStaticFile } = require('../server');
 const { serveDownload, getFileMetadata } = require('../services/download-service');
+
+// =========================================================================
+// GET /files/:id — Dosya Önizleme Sayfası (HTML)
+// =========================================================================
+// /api/files/:id JSON metadata döndürürken, /files/:id kullanıcıya yönelik
+// önizleme sayfası (file.html) sunar. file.js client-side metadata çekip render eder.
+
+addRoute('GET', '/files/:id', async (req, res, params, body) => {
+  // file.html statik sayfasını sun (client-side fileId'yi URL'den çıkarıp metadata çeker)
+  const served = serveStaticFile('/file.html', res);
+  if (!served) {
+    // file.html bulunamazsa (kurulum hatası) 404 gönder
+    sendError(res, 404, 'Preview page not available');
+  }
+});
+
+// /files/:id/dl → /api/files/:id/dl'e yönlendir (kullanıcı dostu kısa link)
+addRoute('GET', '/files/:id/dl', async (req, res, params, body) => {
+  res.writeHead(302, { Location: `/api/files/${params.id}/dl` });
+  res.end();
+});
 
 // =========================================================================
 // GET /api/files/:id — Dosya Metadata

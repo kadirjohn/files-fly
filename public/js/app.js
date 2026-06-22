@@ -132,20 +132,26 @@ DOM.dropZone.addEventListener('drop', (e) => {
 });
 
 // Dosya seçildiğinde
+// Seçilen dosya için object URL (preview amaçlı, bellek sızıntısını önlemek için takip edilir)
+let selectedFileObjectURL = null;
+
 function handleFileSelect(file) {
   selectedFile = file;
+
+  // Eski object URL'i temizle (bellek sızıntısı önle)
+  if (selectedFileObjectURL) {
+    URL.revokeObjectURL(selectedFileObjectURL);
+    selectedFileObjectURL = null;
+  }
 
   // Dosya adı ve boyut
   DOM.previewName.textContent = file.name;
   DOM.previewSize.textContent = formatSize(file.size);
 
-  // İkon (resim ise thumbnail)
+  // İkon (resim ise gerçek thumbnail — URL.createObjectURL ile, base64/truncation yok)
   if (file.type.startsWith('image/')) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      DOM.previewIcon.innerHTML = `<img src="${e.target.result}" alt="preview" class="preview-thumb">`;
-    };
-    reader.readAsDataURL(file.slice(0, 1024 * 100)); // İlk 100KB thumbnail için
+    selectedFileObjectURL = URL.createObjectURL(file);
+    DOM.previewIcon.innerHTML = `<img src="${selectedFileObjectURL}" alt="${escapeHtml(file.name)}" class="preview-thumb">`;
   } else {
     DOM.previewIcon.textContent = getFileIcon(file.type, file.name);
   }
@@ -157,6 +163,11 @@ function handleFileSelect(file) {
 
 // Dosyayı kaldır
 DOM.clearFileBtn.addEventListener('click', () => {
+  // Object URL'i serbest bırak
+  if (selectedFileObjectURL) {
+    URL.revokeObjectURL(selectedFileObjectURL);
+    selectedFileObjectURL = null;
+  }
   selectedFile = null;
   DOM.fileInput.value = '';
   DOM.filePreview.classList.add('hidden');
@@ -595,9 +606,14 @@ DOM.cancelUploadBtn.addEventListener('click', () => {
 function handleUploadSuccess(result) {
   showStep('success');
 
-  // Linkleri göster
-  DOM.directLinkUrl.textContent = result.direct_url;
-  DOM.previewLinkUrl.textContent = result.preview_url;
+  // Linkleri göster — backend relative path döndürür, tam URL olarak göster
+  // (ngrok/production'da window.location.origin host'u yakalar)
+  const origin = window.location.origin;
+  const directFull = result.direct_url.startsWith('http') ? result.direct_url : origin + result.direct_url;
+  const previewFull = result.preview_url.startsWith('http') ? result.preview_url : origin + result.preview_url;
+
+  DOM.directLinkUrl.textContent = directFull;
+  DOM.previewLinkUrl.textContent = previewFull;
 
   // Canlı countdown başlat (Faz 5.6)
   startLiveCountdown(result.expire_at);
@@ -605,11 +621,11 @@ function handleUploadSuccess(result) {
   // İndirme sayacı (Faz 5.6)
   startDownloadCounter(result.id);
 
-  // QR Kod
-  generateQR(result.direct_url);
+  // QR Kod (tam URL ile — relative path QR'da çalışmaz)
+  generateQR(directFull);
 
   // E-posta paylaşım linki (Faz 5.5)
-  updateEmailShareLink(result.direct_url, result.filename);
+  updateEmailShareLink(directFull, result.filename);
 
   // Parola bilgisi
   if (result.is_encrypted) {
@@ -675,6 +691,11 @@ DOM.newUploadErrorBtn.addEventListener('click', resetToSelect);
 DOM.newUploadBtn.addEventListener('click', resetToSelect);
 
 function resetToSelect() {
+  // Object URL'i serbest bırak (bellek sızıntısı önle)
+  if (selectedFileObjectURL) {
+    URL.revokeObjectURL(selectedFileObjectURL);
+    selectedFileObjectURL = null;
+  }
   selectedFile = null;
   fileId = null;
   chunkedMode = false;
