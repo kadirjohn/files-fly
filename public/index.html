@@ -237,10 +237,15 @@
                 </button>
             </div>
 
-            <!-- QR Kod -->
-            <div class="qr-container">
-                <canvas id="qr-canvas" class="qr-canvas" width="120" height="120" aria-label="İndirme linki QR kodu"></canvas>
-                <div class="qr-text" data-i18n="qrText">Mobil cihazdan taratarak dosyaya erişebilirsiniz.</div>
+            <!-- QR Kod — plain centered -->
+            <div class="qr-area">
+                <div class="qr-code-row">
+                    <canvas id="qr-canvas" class="qr-canvas" width="140" height="140" aria-label="İndirme linki QR kodu"></canvas>
+                    <button id="qr-copy-btn" class="btn btn-copy btn-sm qr-copy-btn" title="QR Kodu Kopyala">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        QR Kodu Kopyala
+                    </button>
+                </div>
             </div>
 
             <!-- E-posta ile Paylaş -->

@@ -119,10 +119,6 @@
     background: rgba(0, 0, 0, 0.03);
 }
 
-[data-theme="light"] .qr-container {
-    background: rgba(0, 0, 0, 0.03);
-}
-
 [data-theme="light"] .progress-bar {
     background: rgba(0, 0, 0, 0.08);
 }
@@ -770,25 +766,26 @@ h3 { font-size: 1.25rem; }
 }
 
 /* QR Kod */
-.qr-container {
-    display: flex;
+.qr-area {
+    margin: 1.25rem 0;
+    text-align: center;
+}
+
+.qr-code-row {
+    display: inline-flex;
     align-items: center;
     gap: 1rem;
-    padding: 1rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: var(--radius-md);
-    margin: 1rem 0;
 }
 
 .qr-canvas {
     border-radius: var(--radius-sm);
     background: #fff;
     padding: 4px;
+    display: block;
 }
 
-.qr-text {
-    font-size: 0.8125rem;
-    color: var(--color-text-muted);
+.qr-copy-btn {
+    flex-shrink: 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -883,7 +880,7 @@ h3 { font-size: 1.25rem; }
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: 1rem 1.25rem;
+    padding: 1.25rem;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
@@ -941,6 +938,117 @@ h3 { font-size: 1.25rem; }
 .file-item-meta {
     font-size: 0.8125rem;
     color: var(--color-text-muted);
+}
+
+/* File Item Meta Badges */
+.file-item-meta-badges {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.4rem;
+}
+
+.meta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.meta-badge-size {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.meta-badge-time {
+    background: var(--color-surface);
+    color: var(--color-text-main);
+    border: 1px solid var(--color-border);
+}
+
+/* -------------------------------------------------------------------------
+   Compact Upload Form (session.html)
+   ------------------------------------------------------------------------- */
+.glass-card-compact {
+    padding: 1.25rem;
+}
+
+.form-row-compact {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.form-group-compact {
+    flex: 1;
+    margin-bottom: 0.75rem;
+}
+
+.form-group-compact .form-label {
+    margin-bottom: 0.35rem;
+}
+
+.form-checkbox-compact {
+    font-size: 0.8125rem;
+}
+
+/* Compact Drop Zone — smaller padding & icon */
+.drop-zone-compact {
+    padding: 1.5rem 1rem;
+}
+
+.drop-zone-icon-compact {
+    margin-bottom: 0.5rem;
+}
+
+.drop-zone-title-compact {
+    font-size: 0.9375rem;
+    margin-bottom: 0.25rem;
+}
+
+/* Mobile: stack the form row */
+@media (max-width: 640px) {
+    .form-row-compact {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* Section Divider (session.html) */
+.section-divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+}
+
+.section-divider h2 {
+    flex-shrink: 0;
+    margin: 0;
+}
+
+/* Light theme badge overrides */
+[data-theme="light"] .meta-badge-size {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="light"] .meta-badge-time {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.1);
 }
 
 .file-item-actions {
@@ -1472,8 +1580,26 @@ h3 { font-size: 1.25rem; }
         padding: 2rem 1rem;
     }
 
+    .file-item {
+        padding: 1rem;
+    }
+
     .file-item-actions {
         flex-direction: column;
+    }
+
+    .file-item-meta-badges {
+        gap: 0.35rem;
+    }
+
+    .meta-badge {
+        padding: 0.15rem 0.45rem;
+        font-size: 0.7rem;
+    }
+
+    .qr-code-row {
+        flex-direction: column;
+        gap: 0.75rem;
     }
 
     .stats-grid {
@@ -1537,6 +1663,22 @@ h3 { font-size: 1.25rem; }
 .image-preview {
     margin: 1.5rem 0;
     text-align: center;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.image-preview img,
+.preview-img {
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+    cursor: zoom-in;
+    display: block;
+    margin: 0 auto;
 }
 
 /* Bilgi kartları grid */
@@ -1564,13 +1706,25 @@ h3 { font-size: 1.25rem; }
     color: var(--text-muted, #888);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
 }
 
 .info-value {
     font-size: 0.9375rem;
     font-weight: 600;
     word-break: break-word;
+}
+
+/* Info card with inline badge — center the badge */
+.info-card-size .info-value,
+.info-card-expire .info-value {
+    display: flex;
+    justify-content: center;
+}
+
+.info-card-size .info-value .meta-badge,
+.info-card-expire .info-value .meta-badge {
+    display: inline-flex;
 }
 
 /* Uyarı kutusu (süre dolmuş / parola korumalı) */

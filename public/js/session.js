@@ -6,6 +6,9 @@
  * Sayfalama, link kopyalama, indirme, süre sayacı, önizleme.
  */
 
+(function () {
+  'use strict';
+
 // =========================================================================
 // DOM Referansları
 // =========================================================================
@@ -43,7 +46,10 @@ let countdownIntervals = [];
 // Sayfa Yükleme
 // =========================================================================
 
-async function loadFiles(page = 1) {
+  // app.js'in upload sonrası çağırabilmesi için global olarak expose et
+  window.loadFiles = loadFiles;
+
+  async function loadFiles(page = 1) {
   DOM.loadingState.classList.remove('hidden');
   DOM.emptyState.classList.add('hidden');
   DOM.errorState.classList.add('hidden');
@@ -157,10 +163,13 @@ function renderFiles(files) {
       ${iconHtml}
       <div class="file-item-info">
         <div class="file-item-name">${escapeHtml(file.filename)} ${lockBadge}</div>
-        <div class="file-item-meta">
-          ${size} — <span class="countdown" data-expire="${file.expire_at}">${timeLeft}</span>
-          ${file.download_count > 0 ? ` — ${file.download_count} indirme` : ''}
-          ${isEncrypted ? ' — parola korumalı' : ''}
+        <div class="file-item-meta-badges">
+          <span class="meta-badge meta-badge-size">${size}</span>
+          <span class="meta-badge meta-badge-time">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span class="countdown" data-expire="${file.expire_at}">${timeLeft}</span>
+          </span>
+          ${file.download_count > 0 ? `<span class="text-xs text-muted">${file.download_count} indirme</span>` : ''}
         </div>
       </div>
       <div class="file-item-actions">
@@ -508,6 +517,8 @@ function fallbackCopy(text) {
 // Başlat
 // =========================================================================
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadFiles();
-});
+  document.addEventListener('DOMContentLoaded', () => {
+    loadFiles();
+  });
+
+})();

@@ -133,9 +133,9 @@
     }
 
     // Bilgi kartları
-    DOM.infoSize.textContent = formatSize(parseInt(meta.file_size) || 0);
+    DOM.infoSize.innerHTML = `<span class="meta-badge meta-badge-size">${formatSize(parseInt(meta.file_size) || 0)}</span>`;
     DOM.infoType.textContent = meta.mime_type || 'Bilinmiyor';
-    DOM.infoExpire.textContent = meta.expire_at ? formatDateTime(meta.expire_at) : '-';
+    DOM.infoExpire.innerHTML = `<span class="meta-badge meta-badge-time">${meta.expire_at ? formatDateTime(meta.expire_at) : '-'}</span>`;
     DOM.infoCreated.textContent = meta.created_at ? formatDateTime(meta.created_at) : '-';
 
     // Şifreli rozet

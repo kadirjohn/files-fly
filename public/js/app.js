@@ -635,6 +635,12 @@ function handleUploadSuccess(result) {
   // QR Kod (tam URL ile — relative path QR'da çalışmaz)
   generateQR(directFull);
 
+  // QR Kopyalama butonu
+  const qrCopyBtn = document.getElementById('qr-copy-btn');
+  if (qrCopyBtn) {
+    qrCopyBtn.addEventListener('click', () => copyQRToClipboard());
+  }
+
   // E-posta paylaşım linki (Faz 5.5)
   updateEmailShareLink(directFull, result.filename);
 
@@ -655,11 +661,20 @@ function handleUploadSuccess(result) {
       const targetEl = document.getElementById(targetId);
       if (targetEl) {
         copyToClipboard(targetEl.textContent);
+        btn.dataset.copied = '1';
         btn.textContent = t('copied');
-        setTimeout(() => { btn.textContent = t('copyBtn'); }, 2000);
+        setTimeout(() => {
+          btn.dataset.copied = '0';
+          btn.textContent = t('copyBtn');
+        }, 2000);
       }
     });
   });
+
+  // Eğer session sayfasındaysak, dosya listesini yenile
+  if (typeof loadFiles === 'function') {
+    setTimeout(() => loadFiles(), 500);
+  }
 }
 
 // QR Kod oluştur
@@ -728,6 +743,33 @@ function resetToSelect() {
 // =========================================================================
 // Clipboard
 // =========================================================================
+
+// QR Kod'u panoya kopyala
+function copyQRToClipboard() {
+  const canvas = DOM.qrCanvas;
+  if (!canvas) return;
+
+  try {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        showToast('QR kod kopyalanamadı.', 'error');
+        return;
+      }
+      try {
+        const item = new ClipboardItem({ 'image/png': blob });
+        navigator.clipboard.write([item]).then(() => {
+          showToast('QR kod kopyalandı!', 'success');
+        }).catch(() => {
+          showToast('QR kod kopyalanamadı.', 'error');
+        });
+      } catch {
+        showToast('Tarayıcınız resim kopyalamayı desteklemiyor.', 'error');
+      }
+    }, 'image/png');
+  } catch {
+    showToast('QR kod kopyalanamadı.', 'error');
+  }
+}
 
 function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -868,7 +910,7 @@ function showDecryptUI(fileId, metadata, isDownload) {
   decryptContainer.innerHTML = `
     <section class="step active">
       <div class="glass-card">
-        <div class="success-icon" aria-hidden="true">🔒</div>
+        <div class="success-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="48" height="48"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <h2 class="text-center mb-1">${t('decryptTitle')}</h2>
         <p class="text-center text-muted text-sm mb-2">
           <strong>${escapeHtml(metadata.filename)}</strong> (${formatSize(metadata.file_size)})<br>
@@ -1062,10 +1104,10 @@ function initThemeToggle() {
 const I18N = {
   tr: {
     skipLink: 'Ana içeriğe atla',
-    myFiles: '📂 Dosyalarım',
+    myFiles: 'Dosyalarım',
     pageTitle: 'Dosya Paylaş',
     pageDesc: 'Başlamak için dosyanızı yükleyin, ve ardından paylaşmak istediğiniz kişi ile paylaşın. Dosyalar belirlediğiniz süre dolunca otomatik silinecek.',
-    expireLabel: '⏱️ Saklama Süresi',
+    expireLabel: 'Saklama Süresi',
     expire1h: '1 Saat',
     expire6h: '6 Saat',
     expire12h: '12 Saat',
@@ -1074,23 +1116,22 @@ const I18N = {
     dropZoneTitle: 'Dosyanızı sürükleyin veya seçin',
     passwordToggle: 'Dosyaları parola ile koru',
     passwordPlaceholder: 'Parola girin...',
-    uploadBtn: '🚀 Dosyayı Yükle',
+    uploadBtn: 'Dosyayı Yükle',
     uploadSuccess: 'Yükleme Başarılı!',
     expiryPrefix: 'Dosyanız',
     expirySuffix: 'içinde silinecektir.',
     downloadCount: 'İndirilme:',
-    directLinkLabel: '🔗 Doğrudan İndirme Linki [En Hızlı]',
-    previewLinkLabel: '🔗 Önizleme Sayfası',
-    copyBtn: '📋 Kopyala',
-    qrText: 'Mobil cihazdan taratarak dosyaya erişebilirsiniz.',
-    emailShare: '📧 E-posta ile Paylaş',
+    directLinkLabel: 'Doğrudan İndirme Linki [En Hızlı]',
+    previewLinkLabel: 'Önizleme Sayfası',
+    copyBtn: 'Kopyala',
+    emailShare: 'E-posta ile Paylaş',
     passwordInfo: 'Bu dosya parola ile korumalıdır. Karşı taraf linke gittiğinde bir parola ekranı açılır ve parolayı girmesi istenir — linkin sonuna bir şey eklemenize gerek yoktur. Parolayı güvenli ve ayrı bir kanaldan karşı tarafa iletin.',
-    newUploadBtn: '➕ Yeni Dosya Yükle',
+    newUploadBtn: 'Yeni Dosya Yükle',
     uploadFailed: 'Yükleme Başarısız',
-    retryBtn: '🔄 Tekrar Dene',
-    copied: '✅ Kopyalandı!',
-    cancelUpload: '❌ Yüklemeyi İptal Et',
-    uploading: '⏳ Yükleniyor...',
+    retryBtn: 'Tekrar Dene',
+    copied: 'Kopyalandı!',
+    cancelUpload: 'Yüklemeyi İptal Et',
+    uploading: 'Yükleniyor...',
     encrypting: 'Dosya şifreleniyor...',
     encrypted: 'Dosya şifrelendi, yükleniyor...',
     sessionError: 'Oturum oluşturulamadı. Lütfen sayfayı yenileyin.',
@@ -1103,26 +1144,26 @@ const I18N = {
     chunkFailed: 'Parça yüklenemedi. Lütfen tekrar deneyin.',
     decryptTitle: 'Parola Korumalı Dosya',
     decryptDesc: 'Bu dosya parola korumalıdır. İndirmek için parolayı girin.',
-    decryptPasswordLabel: '🔑 Parola',
+    decryptPasswordLabel: 'Parola',
     decryptPasswordPlaceholder: 'Parolayı girin...',
-    decryptBtn: '🔓 Dosyayı Çöz ve İndir',
+    decryptBtn: 'Dosyayı Çöz ve İndir',
     decryptErrorEmpty: 'Lütfen parola girin.',
     decryptErrorWrong: 'Şifre çözme başarısız. Parola yanlış olabilir.',
     decryptErrorDownload: 'Dosya indirilemedi. Süresi dolmuş olabilir.',
     decryptProgressDownload: 'Şifreli dosya indiriliyor...',
     decryptProgressDecrypt: 'Şifre çözülüyor...',
-    decryptProgressReady: '✅ Dosya hazır!',
-    decryptSuccess: '✅ Dosya başarıyla çözüldü ve indirildi!',
-    decryptDownloaded: '✅ İndirildi',
+    decryptProgressReady: 'Dosya hazır!',
+    decryptSuccess: 'Dosya başarıyla çözüldü ve indirildi!',
+    decryptDownloaded: 'İndirildi',
     copySuccess: 'Link kopyalandı!',
     copyFailed: 'Kopyalanamadı. Lütfen manuel kopyalayın.',
   },
   en: {
     skipLink: 'Skip to main content',
-    myFiles: '📂 My Files',
+    myFiles: 'My Files',
     pageTitle: 'Share a File',
     pageDesc: 'To get started, upload your file and then share it with the person you want to share it with.',
-    expireLabel: '⏱️ Retention Time',
+    expireLabel: 'Retention Time',
     expire1h: '1 Hour',
     expire6h: '6 Hours',
     expire12h: '12 Hours',
@@ -1131,23 +1172,22 @@ const I18N = {
     dropZoneTitle: 'Drag & drop your file or click to select',
     passwordToggle: 'Protect files with a password',
     passwordPlaceholder: 'Enter password...',
-    uploadBtn: '🚀 Upload File',
+    uploadBtn: 'Upload File',
     uploadSuccess: 'Upload Successful!',
     expiryPrefix: 'Your file will be deleted in',
     expirySuffix: '',
     downloadCount: 'Downloads:',
-    directLinkLabel: '🔗 Direct Download Link [Fastest]',
-    previewLinkLabel: '🔗 Preview Page',
-    copyBtn: '📋 Copy',
-    qrText: 'Scan with your mobile device to access the file.',
-    emailShare: '📧 Share via Email',
+    directLinkLabel: 'Direct Download Link [Fastest]',
+    previewLinkLabel: 'Preview Page',
+    copyBtn: 'Copy',
+    emailShare: 'Share via Email',
     passwordInfo: 'This file is protected with a password. When the recipient opens the link, a password prompt appears and they are asked to enter the password — you do not need to add anything to the end of the link. Send the password to the recipient via a separate, secure channel.',
-    newUploadBtn: '➕ Upload New File',
+    newUploadBtn: 'Upload New File',
     uploadFailed: 'Upload Failed',
-    retryBtn: '🔄 Retry',
-    copied: '✅ Copied!',
-    cancelUpload: '❌ Cancel Upload',
-    uploading: '⏳ Uploading...',
+    retryBtn: 'Retry',
+    copied: 'Copied!',
+    cancelUpload: 'Cancel Upload',
+    uploading: 'Uploading...',
     encrypting: 'Encrypting file...',
     encrypted: 'File encrypted, uploading...',
     sessionError: 'Could not create session. Please reload the page.',
@@ -1160,17 +1200,17 @@ const I18N = {
     chunkFailed: 'Chunk upload failed. Please try again.',
     decryptTitle: 'Password Protected File',
     decryptDesc: 'This file is password protected. Enter the password to download.',
-    decryptPasswordLabel: '🔑 Password',
+    decryptPasswordLabel: 'Password',
     decryptPasswordPlaceholder: 'Enter password...',
-    decryptBtn: '🔓 Decrypt & Download',
+    decryptBtn: 'Decrypt & Download',
     decryptErrorEmpty: 'Please enter a password.',
     decryptErrorWrong: 'Decryption failed. The password may be incorrect.',
     decryptErrorDownload: 'Could not download file. It may have expired.',
     decryptProgressDownload: 'Downloading encrypted file...',
     decryptProgressDecrypt: 'Decrypting...',
-    decryptProgressReady: '✅ File ready!',
-    decryptSuccess: '✅ File successfully decrypted and downloaded!',
-    decryptDownloaded: '✅ Downloaded',
+    decryptProgressReady: 'File ready!',
+    decryptSuccess: 'File successfully decrypted and downloaded!',
+    decryptDownloaded: 'Downloaded',
     copySuccess: 'Link copied!',
     copyFailed: 'Could not copy. Please copy manually.',
   },
@@ -1184,10 +1224,45 @@ function t(key) {
 
 function applyTranslations() {
   // data-i18n attribute'ları
+  // ÖNEMLİ: SVG ikon içeren elementlerde (örn. nav-link-files) textContent
+  // kullanmak SVG'yi siler. Bu yüzden önce SVG çocuu var mı kontrol et —
+  // varsa sadece metin düğümünü/span'ı güncelle, SVG'yi koru.
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.dataset.i18n;
     const text = t(key);
-    if (text) el.textContent = text;
+    if (!text) return;
+
+    const svgChild = el.querySelector('svg');
+    if (svgChild) {
+      // SVG var → SVG'den sonraki metni güncelle (SVG'yi koru)
+      // Mevcut text node/span bul: SVG'den sonra gelen ilk text node veya span
+      let textNode = null;
+      let sibling = svgChild.nextSibling;
+      while (sibling) {
+        if (sibling.nodeType === Node.TEXT_NODE && sibling.textContent.trim()) {
+          textNode = sibling;
+          break;
+        }
+        if (sibling.nodeType === Node.ELEMENT_NODE && sibling.tagName === 'SPAN') {
+          textNode = sibling;
+          break;
+        }
+        sibling = sibling.nextSibling;
+      }
+      if (textNode) {
+        if (textNode.nodeType === Node.TEXT_NODE) {
+          textNode.textContent = ' ' + text;
+        } else {
+          textNode.textContent = text;
+        }
+      } else {
+        // SVG'den sonra metin yok → yeni text node ekle
+        el.appendChild(document.createTextNode(' ' + text));
+      }
+    } else {
+      // SVG yok → normal textContent güncelleme
+      el.textContent = text;
+    }
   });
 
   // data-i18n-placeholder
@@ -1233,8 +1308,9 @@ function updateDynamicTranslations() {
   }
 
   // Success step copy buttons
+  // "Kopyalandı!" durumunu data-copied attribute ile takip et (emoji karşılaştırma yerine).
   document.querySelectorAll('[data-copy]').forEach(btn => {
-    if (btn.textContent === '✅ Kopyalandı!' || btn.textContent === '✅ Copied!') {
+    if (btn.dataset.copied === '1') {
       btn.textContent = t('copied');
     } else {
       btn.textContent = t('copyBtn');
