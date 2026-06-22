@@ -222,6 +222,11 @@ async function apiFetch(url, options = {}) {
 
   const resp = await fetch(url, { ...options, headers });
 
+  // HTTP 4xx/5xx durumlarını konsola yaz — hata ayıklama için görünür kalsın
+  if (!resp.ok && resp.status !== 401) {
+    console.error(`[admin] ${options.method || 'GET'} ${url} → HTTP ${resp.status}`);
+  }
+
   if (resp.status === 401) {
     // Token expired/invalid
     token = null;
@@ -282,6 +287,7 @@ async function loadDashboard() {
       DOM.dailyStats.innerHTML = '<p class="text-muted text-sm">Son 7 günde yükleme yok.</p>';
     }
   } catch (err) {
+    console.error('[loadDashboard] error:', err);
     if (err.message !== 'Unauthorized') {
       DOM.statsGrid.innerHTML = '<div class="stat-card"><div class="stat-label text-error">Yüklenemedi</div></div>';
     }
@@ -350,6 +356,7 @@ async function loadFiles(page = 1) {
       btn.addEventListener('click', () => deleteFile(btn.dataset.id, btn.dataset.name));
     });
   } catch (err) {
+    console.error('[loadFiles] error:', err);
     if (err.message !== 'Unauthorized') {
       DOM.filesTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-error">Yüklenemedi.</td></tr>';
     }
@@ -417,6 +424,7 @@ async function openPreview(fileId, filename) {
         break;
     }
   } catch (err) {
+    console.error('[openPreview] error:', err);
     DOM.previewContent.innerHTML = '<p class="text-error">Önizleme yüklenemedi.</p>';
   }
 }
@@ -449,6 +457,7 @@ async function deleteFile(fileId, filename) {
       loadFiles(filesPage); // Listeyi yenile
     }
   } catch (err) {
+    console.error('[deleteFile] error:', err);
     if (err.message !== 'Unauthorized') {
       alert('Dosya silinemedi.');
     }
@@ -514,6 +523,7 @@ async function loadBannedIPs() {
       });
     });
   } catch (err) {
+    console.error('[loadBannedIPs] error:', err);
     if (err.message !== 'Unauthorized') {
       DOM.bannedIpsList.innerHTML = '<p class="text-error text-sm">Yüklenemedi.</p>';
     }
@@ -612,6 +622,7 @@ async function loadSettings() {
       </div>
     `;
   } catch (err) {
+    console.error('[loadSettings] error:', err);
     if (err.message !== 'Unauthorized') {
       DOM.settingsForm.innerHTML = '<p class="text-error">Ayarlar yüklenemedi.</p>';
     }

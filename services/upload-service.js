@@ -293,12 +293,13 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   const previewUrl = `${BASE_URL}/api/files/${fileId}`;
 
   const result = await query(
-    `INSERT INTO files (session_id, ip_hash, filename, file_size, mime_type,
+    `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,
                         storage_path, direct_url, expire_at, is_encrypted,
                         encryption_iv, encryption_salt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
+      fileId,
       sessionId,
       ipHash,
       file.filename,

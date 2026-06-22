@@ -381,7 +381,8 @@ const server = http.createServer(async (req, res) => {
   // Middleware Zinciri: Rate Limiter → Session → Router
   // -----------------------------------------------------------------------
 
-  // 1. Rate Limiter — sadece API route'larına uygula (statik dosyaları sayma)
+  // 1. Rate Limiter — tiered bucket mimarisi (admin muaf, login/upload/download/read ayrı)
+  //    Sadece /api/ route'larına uygulanır; statik dosyalar sayılmaz.
   if (urlPath.startsWith('/api/')) {
     try {
       const rateLimited = await rateLimitMiddleware(req, res);
