@@ -41,6 +41,9 @@
          YÜKLEME FORMU (Her zaman görünür)
          ================================================================== -->
     <section id="step-select" class="step active">
+        <div class="session-logo-block">
+            <img src="/filesfly-logo.png" alt="Files Fly" class="session-page-logo">
+        </div>
         <div class="glass-card glass-card-compact">
             <!-- Saklama Süresi + Parola Toggle (yan yana) -->
             <div class="form-row-compact">
@@ -58,15 +61,12 @@
                     </select>
                 </div>
                 <div class="form-group form-group-compact">
-                    <label class="form-label">
+                    <label class="password-toggle-label-row form-label form-checkbox-compact" id="password-toggle-label">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" class="icon-inline"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        <span data-i18n="sessionPassword">Parola</span>
-                    </label>
-                    <label class="password-toggle-label-row form-checkbox-compact" id="password-toggle-label">
-                        <input type="checkbox" id="password-toggle">
                         <span data-i18n="sessionPasswordProtect">Parola ile koru</span>
+                        <input type="checkbox" id="password-toggle">
                     </label>
-                    <div class="password-field-always mt-1">
+                    <div class="password-field-always">
                         <input type="password" id="password-input" class="form-input" data-i18n-placeholder="passwordPlaceholder" placeholder="Parola girin..." autocomplete="new-password" readonly>
                         <span class="password-lock-icon">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -263,10 +263,6 @@
     </div>
 
     <!-- Logo above file list card -->
-    <div class="session-logo-block">
-        <img src="/filesfly-logo.png" alt="Files Fly" class="session-page-logo">
-    </div>
-
     <div class="glass-card">
         <!-- Dosya Listesi -->
         <div id="file-list" class="file-list">

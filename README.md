@@ -21,12 +21,19 @@ Dosyalar veritabanında saklanmaz. DB sadece metadata (object key + backend) tut
 
 ```bash
 cp .env.example .env
-# .env'i aç ve şu değerleri değiştir:
-#   JWT_SECRET         — openssl rand -base64 64
-#   IP_HASH_SECRET     — openssl rand -base64 64
-#   CREDENTIALS_MASTER_KEY — openssl rand -base64 32 (şifreli credential için)
-#   ADMIN_PASSWORD     — kendi şifren
+# .env'i aç ve şu SİSTEM-SEVİYE değerleri üret/doldur:
+#   JWT_SECRET             — openssl rand -base64 64
+#   IP_HASH_SECRET         — openssl rand -base64 64
+#   CREDENTIALS_MASTER_KEY — openssl rand -base64 32   (storage şifreleme anahtarı)
+#   ADMIN_PASSWORD         — kendi şifren
 ```
+
+> **R2 / Supabase credential'larını `.env`'e YAZMA.** Bu dosyada yalnızca
+> sistem-seviye sırlar (JWT, IP hash, Master Key) bulunur. Cloudflare R2 ve
+> Supabase Storage bağlantı bilgilerini **uygulama çalıştıktan sonra admin
+> panelden** girersin — orada AES-256-GCM ile şifrelenip veritabanına yazılır ve
+> restart gerektirmeden anında etkin olur. (Bkz. aşağıdaki "Storage Backend
+> Seçimi".)
 
 ### 2. Konteynerleri başlat
 
@@ -38,6 +45,7 @@ Bu komut:
 - PostgreSQL + Node.js konteynerlerini başlatır
 - 3 migration'ı otomatik çalıştırır (schema + object-storage + audit-log)
 - Storage backend'ini başlatır (varsayılan: `local`)
+- Docker imajı AWS SDK'yı (R2/Supabase için) kutudan çıktığı gibi içerir — ekstra `npm install` gerekmez
 
 ### 3. Admin kullanıcısı oluştur (ÖNEMLİ)
 
@@ -54,30 +62,46 @@ docker compose exec filesfly node seed.js admin admin123
 - Ana sayfa: `http://localhost:9392`
 - Admin panel: `http://localhost:9392/admin` → `admin` / `admin123`
 
+### 5. (Opsiyonel) Cloud storage'a geç
+
+Yerel disk (varsayılan) yerine Cloudflare R2 veya Supabase Storage kullanmak istersen — **`.env`'i tekrar düzenlemeden**, admin panelden yap:
+
+1. Admin → **Ayarlar** → **Storage** sekmesi
+2. R2 veya Supabase **kartına tıkla** → credential modal'ı açılır
+3. Account ID / Access Key / Secret / Bucket gir → **Kaydet**
+4. **"Depolama Backend'ini Uygula"** → yeni dosyalar artık bucket'a
+
+Detaylı akış aşağıda.
+
 ## Storage Backend Seçimi (Admin Panel)
 
-Admin → **Ayarlar** → **Dosya Depolama** bölümü:
+Admin → **Ayarlar** → **Storage** bölümü:
 
 1. **Yerel Disk** (varsayılan) — sıfır yapılandırma, dosyalar `/data/uploads`'a
 2. **Cloudflare R2** — S3-uyumlu, çıkış trafiği ücretsiz
 3. **Supabase Storage** — S3-uyumlu endpoint
 
-### R2/Supabase'ı aktifleştirme akışı
+### R2/Supabase'ı aktifleştirme akışı (admin panel — restart yok)
 
-1. Admin panelde R2/Supabase altında **"Credential'ları Düzenle"** butonuna tıkla
-2. Account ID, Access Key, Secret Key, Bucket Name gir → **Kaydet**
-3. Secret Key **AES-256-GCM ile şifrelenip DB'ye yazılır** (plaintext değil)
-4. Backend "Credential Eksik" → "Hazır" rozetine döner
-5. **"Depolama Backend'ini Uygula"** butonuna tıkla → R2/Supabase aktif
-6. Yeni dosyalar artık bucket'e yüklenir; mevcut dosyalar kendi backend'inde kalır
+1. Admin panelde **Ayarlar → Storage**'a git, R2 veya Supabase **kartına tıkla**
+2. Açılan credential modalında Account ID / Access Key / Secret / Bucket gir → **Kaydet**
+3. Secret Key **AES-256-GCM ile şifrelenip DB'ye yazılır** (plaintext değil) — anında
+4. Kart "Yapılandırılmadı" → "Hazır" rozetine döner
+5. Backend'i seçip **"Depolama Backend'ini Uygula"** butonuna tıkla → R2/Supabase aktif
+6. Yeni dosyalar artık bucket'e yüklenir; mevcut dosyalar kendi backend'inde kalır (orphan blob olmaz)
 
-### Credential güvenliği
+> **Tüm bu adımlar runtime'da olur — sunucuyu restart etmen gerekmez.** Provider
+> cache'i credential değişince invalidate edilir; backend switch `setActiveBackend`
+> ile anında etkinleşir.
 
-- Secret key'ler DB'de `enc:v1:` prefix'li AES-256-GCM ciphertext olarak saklanır
-- `.env`'deki `CREDENTIALS_MASTER_KEY` ile şifrelenir (PBKDF2 → 32-byte key)
-- Admin panelde secret "Ayarlandı" rozeti olarak gösterilir (asla raw değer)
-- "Son Değişiklikler" bölümünde audit log (kim/ne zaman/hangi key'ler)
-- Master Key'i değiştirirsen DB'deki şifreli secret'lar decrypt edilemez (yeniden girilir)
+### Credential güvenliği (endüstri standardı)
+
+- **Encryption at rest:** Secret key'ler DB'de `enc:v1:` prefix'li AES-256-GCM ciphertext olarak saklanır. DB sızdırılsa bile anahtarlar okunamaz.
+- **Şifreleme anahtarı:** `.env`'deki tek sistem-seviye sır `CREDENTIALS_MASTER_KEY` — PBKDF2 ile 32-byte AES key türetilir. R2/Supabase credential'larının kendisi `.env`'de DEĞİL, DB'de (şifreli) durur.
+- **UI maskeleme:** Admin panelde secret "● Ayarlandı" rozeti olarak gösterilir — raw değer asla frontend'e gönderilmez.
+- **RBAC + audit log:** Ayarlar sayfası admin auth arkasında; "Son Değişiklikler" bölümünde kim/ne zaman/hangi key'ler değişti kayıtlı.
+- **Restart gerektirmeyen esneklik:** Credential güncelleme + backend switch ikisi de runtime — `.env` veya sunucu restart'ı gerekmez.
+- ⚠️ `CREDENTIALS_MASTER_KEY`'i değiştirirsen DB'deki şifreli secret'lar decrypt edilemez (yeniden girilmesi gerekir). Üretimde bir kez set et, sonra dokunma.
 
 ## Sık Kullanılan Komutlar
 
@@ -114,10 +138,14 @@ Tüm ayarlar `.env` veya admin panel üzerinden. Detaylı açıklama için [`.en
 | `DATABASE_URL` | PostgreSQL bağlantı URL | `postgresql://filesfly:...@localhost:5432/filesfly` |
 | `JWT_SECRET` | Admin login JWT imzalama key | (değiştir!) |
 | `IP_HASH_SECRET` | IP hash'leme key (boşsa restart'ta değişir) | (değiştir!) |
-| `CREDENTIALS_MASTER_KEY` | Credential şifreleme Master Key (boş = plaintext) | (değiştir!) |
-| `STORAGE_BACKEND` | Aktif backend: `local` / `r2` / `supabase` | `local` |
+| `CREDENTIALS_MASTER_KEY` | Storage credential şifreleme Master Key (boş = plaintext) | (değiştir!) |
+| `STORAGE_BACKEND` | İlk açılışta varsayılan backend | `local` |
 | `UPLOADS_DIR` | Local backend dosya dizini | `/data/uploads` |
-| `R2_*` / `SUPABASE_*` | Cloud backend credential'ları | (admin panelden de girilebilir) |
+
+> **R2 / Supabase credential'ları (Account ID, Access Key, Secret, Bucket) `.env`'de
+> YOK** — bunlar admin panelden girilir ve DB'de AES-256-GCM ile şifreli saklanır.
+> `STORAGE_BACKEND` ise ilk açılıştan sonra admin panelden değiştirilir (runtime,
+> restart yok); `.env`'deki değer sadece ilk boot'taki varsayılanı belirler.
 
 ## Mimari
 

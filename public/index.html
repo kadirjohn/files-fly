@@ -75,6 +75,9 @@
          ================================================================== -->
     <section id="step-select" class="step active">
         <div class="glass-card">
+            <div class="home-logo-block">
+                <img src="/filesfly-logo.png" alt="Files Fly" class="home-page-logo">
+            </div>
             <h1 class="text-center mb-2" data-i18n="pageTitle">Dosya Paylaş</h1>
             <p class="text-center text-muted text-sm mb-3" data-i18n="pageDesc">
                 Başlamak için dosyanızı yükleyin, ve ardından paylaşmak istediğiniz kişi ile paylaşın. Dosyalar belirlediğiniz süre dolunca otomatik silinecek.
@@ -99,13 +102,10 @@
 
                 <!-- Parola Koruması -->
                 <div class="form-group">
-                    <label class="form-label">
+                    <label class="password-toggle-label-row form-label" id="password-toggle-label">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="icon-inline"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Parola Koruması
-                    </label>
-                    <label class="password-toggle-label-row" id="password-toggle-label">
-                        <input type="checkbox" id="password-toggle">
                         <span data-i18n="passwordToggle">Parola ile koru</span>
+                        <input type="checkbox" id="password-toggle">
                     </label>
                     <div class="password-field-always">
                         <input type="password" id="password-input" class="form-input" data-i18n-placeholder="passwordPlaceholder" placeholder="Parola girin..." autocomplete="new-password" readonly>

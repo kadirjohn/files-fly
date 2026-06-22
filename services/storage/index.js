@@ -175,28 +175,58 @@ async function resolveLocalConfig() {
 }
 
 /**
- * R2 provider config'ini çözer (DB > env).
- * @returns {Promise<Object>}
+ * R2 provider config'ini çözer (DB > env) ve provider constructor'ının
+ * beklediği camelCase alan adlarına map'ler.
+ *
+ * ÖNEMLİ: resolveConfigKeys SCREAMING_SNAKE env key'leriyle ({ R2_ACCOUNT_ID, ... })
+ * döner — bunlar DB'de `storage:r2:R2_*` ve .env `R2_*` olarak saklanır (arayüz
+ * kontratı budur, değiştirilmemeli). Ama R2StorageProvider constructor'ı camelCase
+ * bekler (config.accountId, config.bucket, ...). Bu map'leme olmadan DB'den okunan
+ * değerler constructor'a undefined olarak gider, provider env fallback'ine düşer ve
+ * admin panelden girilen credential'lar etkisiz kalırdı (switch anında
+ * "R2_ACCOUNT_ID zorunludur" hatası). resolveLocalConfig'in yaptığı gibi map'liyoruz.
+ *
+ * @returns {Promise<Object>} - { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, presignExpiresIn }
  */
 async function resolveR2Config() {
-  const keys = [
+  const cfg = await resolveConfigKeys('r2', [
     'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'R2_BUCKET_NAME', 'R2_PUBLIC_BASE_URL', 'R2_PRESIGN_EXPIRES_IN',
-  ];
-  return resolveConfigKeys('r2', keys);
+  ]);
+  const presignRaw = cfg.R2_PRESIGN_EXPIRES_IN;
+  return {
+    accountId: cfg.R2_ACCOUNT_ID || undefined,
+    accessKeyId: cfg.R2_ACCESS_KEY_ID || undefined,
+    secretAccessKey: cfg.R2_SECRET_ACCESS_KEY || undefined,
+    bucket: cfg.R2_BUCKET_NAME || undefined,
+    publicBaseUrl: cfg.R2_PUBLIC_BASE_URL || undefined,
+    presignExpiresIn: presignRaw ? parseInt(presignRaw, 10) : undefined,
+  };
 }
 
 /**
- * Supabase provider config'ini çözer (DB > env).
- * @returns {Promise<Object>}
+ * Supabase provider config'ini çözer (DB > env) ve provider constructor'ının
+ * beklediği camelCase alan adlarına map'ler. (resolveR2Config ile aynı sebep —
+ * bkz. yukarıdaki açıklama.)
+ *
+ * @returns {Promise<Object>} - { endpoint, region, accessKeyId, secretAccessKey, bucket, publicBaseUrl, presignExpiresIn }
  */
 async function resolveSupabaseConfig() {
-  const keys = [
+  const cfg = await resolveConfigKeys('supabase', [
     'SUPABASE_S3_ENDPOINT', 'SUPABASE_S3_REGION',
     'SUPABASE_S3_ACCESS_KEY_ID', 'SUPABASE_S3_SECRET_ACCESS_KEY',
     'SUPABASE_S3_BUCKET', 'SUPABASE_S3_PUBLIC_BASE_URL', 'SUPABASE_PRESIGN_EXPIRES_IN',
-  ];
-  return resolveConfigKeys('supabase', keys);
+  ]);
+  const presignRaw = cfg.SUPABASE_PRESIGN_EXPIRES_IN;
+  return {
+    endpoint: cfg.SUPABASE_S3_ENDPOINT || undefined,
+    region: cfg.SUPABASE_S3_REGION || undefined,
+    accessKeyId: cfg.SUPABASE_S3_ACCESS_KEY_ID || undefined,
+    secretAccessKey: cfg.SUPABASE_S3_SECRET_ACCESS_KEY || undefined,
+    bucket: cfg.SUPABASE_S3_BUCKET || undefined,
+    publicBaseUrl: cfg.SUPABASE_S3_PUBLIC_BASE_URL || undefined,
+    presignExpiresIn: presignRaw ? parseInt(presignRaw, 10) : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -306,19 +336,22 @@ async function checkBackendAvailability(backend) {
 
   try {
     if (backend === 'r2') {
+      // resolveR2Config artık camelCase döndürür (provider constructor ile uyumlu).
+      // Eksik alan adları arayüzde gösterilen env key'leriyle eşleşsin diye mesajda
+      // SCREAMING formu kullanıyoruz (admin schema da böyle gösterir).
       const cfg = await resolveR2Config();
-      if (!cfg.R2_ACCOUNT_ID) return { available: false, error: 'R2_ACCOUNT_ID eksik.' };
-      if (!cfg.R2_ACCESS_KEY_ID) return { available: false, error: 'R2_ACCESS_KEY_ID eksik.' };
-      if (!cfg.R2_SECRET_ACCESS_KEY) return { available: false, error: 'R2_SECRET_ACCESS_KEY eksik.' };
-      if (!cfg.R2_BUCKET_NAME) return { available: false, error: 'R2_BUCKET_NAME eksik.' };
+      if (!cfg.accountId) return { available: false, error: 'R2_ACCOUNT_ID eksik.' };
+      if (!cfg.accessKeyId) return { available: false, error: 'R2_ACCESS_KEY_ID eksik.' };
+      if (!cfg.secretAccessKey) return { available: false, error: 'R2_SECRET_ACCESS_KEY eksik.' };
+      if (!cfg.bucket) return { available: false, error: 'R2_BUCKET_NAME eksik.' };
       return { available: true };
     }
     if (backend === 'supabase') {
       const cfg = await resolveSupabaseConfig();
-      if (!cfg.SUPABASE_S3_ENDPOINT) return { available: false, error: 'SUPABASE_S3_ENDPOINT eksik.' };
-      if (!cfg.SUPABASE_S3_ACCESS_KEY_ID) return { available: false, error: 'SUPABASE_S3_ACCESS_KEY_ID eksik.' };
-      if (!cfg.SUPABASE_S3_SECRET_ACCESS_KEY) return { available: false, error: 'SUPABASE_S3_SECRET_ACCESS_KEY eksik.' };
-      if (!cfg.SUPABASE_S3_BUCKET) return { available: false, error: 'SUPABASE_S3_BUCKET eksik.' };
+      if (!cfg.endpoint) return { available: false, error: 'SUPABASE_S3_ENDPOINT eksik.' };
+      if (!cfg.accessKeyId) return { available: false, error: 'SUPABASE_S3_ACCESS_KEY_ID eksik.' };
+      if (!cfg.secretAccessKey) return { available: false, error: 'SUPABASE_S3_SECRET_ACCESS_KEY eksik.' };
+      if (!cfg.bucket) return { available: false, error: 'SUPABASE_S3_BUCKET eksik.' };
       return { available: true };
     }
   } catch (err) {

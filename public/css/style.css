@@ -2377,6 +2377,7 @@ h3 { font-size: 1.25rem; }
     cursor: pointer;
     border-radius: 4px;
     flex-shrink: 0;
+    margin-left: auto;
 }
 
 /* =========================================================================
@@ -2402,3 +2403,19 @@ h3 { font-size: 1.25rem; }
    ml-1 utility
    ========================================================================= */
 .ml-1 { margin-left: 0.5rem; }
+
+/* =========================================================================
+   Home Page Logo (above "Dosya Paylaş" title)
+   ========================================================================= */
+.home-logo-block {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.home-page-logo {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    border-radius: 14px;
+}
