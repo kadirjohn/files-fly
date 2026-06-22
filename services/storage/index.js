@@ -54,6 +54,13 @@ const providerCache = new Map(); // backendName → provider instance
 
 const SUPPORTED_BACKENDS = ['local', 'r2', 'supabase'];
 
+// Secret alanlar (DB'de AES-256-GCM ile şifreli saklanır).
+// Non-secret alanlar (bucket, endpoint, region) plaintext — şifrelemeye değmez.
+const SECRET_FIELDS = {
+  r2: ['R2_SECRET_ACCESS_KEY'],
+  supabase: ['SUPABASE_S3_SECRET_ACCESS_KEY'],
+};
+
 /**
  * Config/env'den hangi backend'in aktif olduğunu döndürür.
  * Öncelik: env STORAGE_BACKEND > 'local'.
@@ -99,20 +106,27 @@ function getActiveBackendName() {
  * Not: config-service require edildiğinde circular dependency oluşabilir
  * (config-service → database → ...), bu yüzden lazy require kullanıyoruz.
  *
+ * Secret alanlar DB'de AES-256-GCM ile şifreli saklanır (crypto-vault.js).
+ * Okurken decrypt edilir. .env'den gelen değerler plaintext'tir (fallback).
+ *
  * @param {string} backend - 'local' | 'r2' | 'supabase'
  * @param {Array<string>} keys - [envVarName, ...] — hem env hem DB'de aranır
- * @returns {Promise<Object>} - { [envVarName]: value }
+ * @returns {Promise<Object>} - { [envVarName]: plaintextValue }
  * @private
  */
 async function resolveConfigKeys(backend, keys) {
+  const { decrypt } = require('../crypto-vault');
+  const secretSet = new Set(SECRET_FIELDS[backend] || []);
+
   const result = {};
-  // .env fallback — önce tüm key'leri env'den doldur
+  // .env fallback — önce tüm key'leri env'den doldur (plaintext)
   for (const envKey of keys) {
     if (process.env[envKey] !== undefined && process.env[envKey] !== '') {
       result[envKey] = process.env[envKey];
     }
   }
   // DB config override — config tablosundan storage:<backend>:<key> oku
+  // Secret alanlar şifreli → decrypt gerekir.
   try {
     const { query } = require('../database');
     const dbKeys = keys.map(k => `storage:${backend}:${k}`);
@@ -125,7 +139,18 @@ async function resolveConfigKeys(backend, keys) {
       // storage:r2:R2_BUCKET_NAME → R2_BUCKET_NAME
       const envKey = row.key.replace(`storage:${backend}:`, '');
       if (row.value !== null && row.value !== undefined && row.value !== '') {
-        result[envKey] = row.value;
+        if (secretSet.has(envKey)) {
+          // Secret → decrypt et (RAM'de plaintext)
+          try {
+            result[envKey] = decrypt(row.value);
+          } catch (decErr) {
+            console.error(`[Storage] Decrypt failed for ${backend}:${envKey}:`, decErr.message);
+            // Decrypt hatası: değeri at, .env fallback veya boş kullan
+          }
+        } else {
+          // Non-secret → plaintext
+          result[envKey] = row.value;
+        }
       }
     }
   } catch (err) {
@@ -325,14 +350,9 @@ async function getBackendStatuses() {
 // Credential Yapılandırması (GET / SET — admin panel için)
 // ---------------------------------------------------------------------------
 
-// Hangi alanların secret (maskelenecek) olduğunu tanımla.
-// Secret olmayan alanlar (bucket, endpoint, region) düz metin gösterilir.
-const SECRET_FIELDS = {
-  r2: ['R2_SECRET_ACCESS_KEY'],
-  supabase: ['SUPABASE_S3_SECRET_ACCESS_KEY'],
-};
-
 // Backend başına config şeması — UI'da hangi alanların gösterileceğini belirler.
+// (SECRET_FIELDS yukarıda, SUPPORTED_BACKENDS altında tanımlı — resolveConfigKeys
+//  onu kullanır, bu yüzden önde tanımlandı.)
 const BACKEND_CONFIG_SCHEMA = {
   local: [],
   r2: [
@@ -356,7 +376,13 @@ const BACKEND_CONFIG_SCHEMA = {
 
 /**
  * Bir backend'in config değerlerini döndürür (admin panel GET).
- * Secret alanlar MASKELİ olarak döner (örn: "••••••••last4").
+ *
+ * Secret alanlar için: ASLA raw değeri frontend'e gönderme. Bunun yerine
+ * "Ayarlandı" (set) veya null (unset) döner. Frontend "Ayarlandı" gördüğünde
+ * input'u boş bırakır + "Ayarlandı" rozeti gösterir; yeni değer girilirse
+ * üzerine yazılır.
+ *
+ * Non-secret alanlar (bucket, endpoint, region) plaintext döner.
  * Boş alanlar null döner (UI'da placeholder gösterilir).
  *
  * @param {string} backend
@@ -370,35 +396,42 @@ async function getBackendConfig(backend) {
   const envKeys = schema.map(s => s.key);
   const rawCfg = await resolveConfigKeys(backend, envKeys);
 
-  const masked = {};
+  const safe = {};
   for (const field of schema) {
     const val = rawCfg[field.key];
     if (val === undefined || val === null || val === '') {
-      masked[field.key] = null;
+      safe[field.key] = null;
     } else if (field.secret && val) {
-      // Secret → maskele (son 4 karakter görünür)
-      masked[field.key] = maskSecret(val);
+      // Secret → "Ayarlandı" (asla raw değeri frontend'e gönderme)
+      safe[field.key] = 'Ayarlandı';
     } else {
-      masked[field.key] = val;
+      safe[field.key] = val;
     }
   }
 
-  return { backend, config: masked, schema };
+  return { backend, config: safe, schema };
 }
 
 /**
  * Bir backend'in config değerlerini günceller (admin panel PUT).
- * Secret alanlar için: body'de "••••" maskesi geldiği anlamına gelir
- * → mevcut değeri değiştirme. Yeni değer geldiğinde üzerine yaz.
+ *
+ * Secret alanlar: AES-256-GCM ile şifrelenip DB'ye yazılır (crypto-vault.js).
+ * - Yeni değer geldi → encrypt + DB'ye yaz
+ * - "Ayarlandı" (masked placeholder) geldi → mevcut değeri koru (skip)
+ * - Boş değer geldi → mevcut değeri temizle (DB'den sil)
+ *
+ * Non-secret alanlar: plaintext olarak DB'ye yazılır.
  *
  * @param {string} backend
- * @param {Object} updates - { R2_BUCKET_NAME: 'foo', ... }
+ * @param {Object} updates - { R2_BUCKET_NAME: 'foo', R2_SECRET_ACCESS_KEY: '...' }
+ * @param {Object} [auditCtx] - { adminUser } — audit log için (opsiyonel)
  * @returns {Promise<{ updated: string[], skipped: string[] }>}
  */
-async function setBackendConfig(backend, updates) {
+async function setBackendConfig(backend, updates, auditCtx) {
   if (!SUPPORTED_BACKENDS.includes(backend)) {
     throw new Error(`Desteklenmeyen backend: ${backend}`);
   }
+  const { encrypt } = require('../crypto-vault');
   const schema = BACKEND_CONFIG_SCHEMA[backend] || [];
   const schemaKeys = new Set(schema.map(s => s.key));
 
@@ -406,7 +439,7 @@ async function setBackendConfig(backend, updates) {
   const updated = [];
   const skipped = [];
 
-  // Önce mevcut değerleri çek (mask karşılaştırması için)
+  // Önce mevcut değerleri çek (skip kararı için)
   const currentRaw = await resolveConfigKeys(backend, [...schemaKeys]);
 
   for (const [key, value] of Object.entries(updates)) {
@@ -417,8 +450,8 @@ async function setBackendConfig(backend, updates) {
     const field = schema.find(s => s.key === key);
     const trimmed = (value === null || value === undefined) ? '' : String(value).trim();
 
-    // Secret alan + değer maskelenmiş halde geldi → değiştirme
-    if (field.secret && trimmed && (trimmed === '••••••••' || /^•+/.test(trimmed))) {
+    // Secret alan + "Ayarlandı" placeholder geldi → mevcut değeri koru (skip)
+    if (field.secret && trimmed === 'Ayarlandı') {
       skipped.push(key);
       continue;
     }
@@ -428,9 +461,15 @@ async function setBackendConfig(backend, updates) {
       continue;
     }
 
+    // DB'ye yazılacak değer: secret ise encrypt et, değilse plaintext
+    let dbValue = trimmed;
+    if (field.secret && trimmed) {
+      dbValue = encrypt(trimmed);
+    }
+
     // DB'ye yaz: storage:<backend>:<key>
     const dbKey = `storage:${backend}:${key}`;
-    await updateConfig({ [dbKey]: trimmed });
+    await updateConfig({ [dbKey]: dbValue });
     invalidateKey(dbKey);
     updated.push(key);
   }
@@ -440,19 +479,115 @@ async function setBackendConfig(backend, updates) {
     invalidateProvider(backend);
   }
 
+  // Audit log (opsiyonel — admin route'tan auditCtx verilirse)
+  if (auditCtx && auditCtx.adminUser && updated.length > 0) {
+    try {
+      const { logAudit } = require('../audit-service');
+      await logAudit({
+        adminUser: auditCtx.adminUser,
+        action: 'storage_credential_update',
+        target: backend,
+        metadata: { updated, skipped },
+      });
+    } catch (err) {
+      console.error('[Storage] Audit log failed:', err.message);
+      // Audit hatası credential güncellemesini engellemesin
+    }
+  }
+
   return { updated, skipped };
 }
 
+// ---------------------------------------------------------------------------
+// Plaintext Secret Migration (migration 003 — startup'ta çalışır)
+// ---------------------------------------------------------------------------
+
 /**
- * Secret değerini maskeler (son 4 karakter görünür, geri kalan •).
- * @param {string} val
- * @returns {string}
- * @private
+ * DB'de plaintext olarak kalmış storage secret'lerini AES-256-GCM ile şifreler.
+ * Migration 003 'storage:secrets_migration_pending' flag'i set eder; bu fonksiyon
+ * startup'ta o flag'i görür, plaintext secret'leri şifreler, flag'i temizler.
+ *
+ * Strateji:
+ *   - Her backend için SECRET_FIELDS'deki key'leri tara
+ *   - "enc:v1:" prefix'i OLMAYAN değerler plaintext → encrypt + UPDATE
+ *   - "enc:v1:" prefix'i olan değerler zaten şifreli → atla
+ *   - Boş değerler → atla
+ *   - Sonuç: tüm secret'ler şifreli, flag temizlenir
+ *
+ * Master Key yoksa (dev): migration atlanır (plaintext kalır, warning verilir).
+ * Flag korunur — Master Key set edilip restart edilince migration çalışır.
+ *
+ * @returns {Promise<{ migrated: number, skipped: number, deferred: boolean }>}
  */
-function maskSecret(val) {
-  const s = String(val);
-  if (s.length <= 4) return '••••';
-  return '••••••••' + s.slice(-4);
+async function migratePlaintextSecrets() {
+  const { isEncrypted, encrypt, isEncryptionEnabled } = require('../crypto-vault');
+
+  // Master Key yoksa → ertele (flag korunur)
+  if (!isEncryptionEnabled()) {
+    console.warn('[Storage] Plaintext secret migration ertelendi — CREDENTIALS_MASTER_KEY yok.');
+    return { migrated: 0, skipped: 0, deferred: true };
+  }
+
+  let migrated = 0;
+  let skipped = 0;
+
+  try {
+    const { query } = require('../database');
+
+    // Flag var mı?
+    const flagRes = await query(
+      `SELECT value FROM config WHERE key = 'storage:secrets_migration_pending'`
+    );
+    if (flagRes.rows.length === 0 || flagRes.rows[0].value !== '1') {
+      // Flag yok → migration zaten yapılmış, atla
+      return { migrated: 0, skipped: 0, deferred: false };
+    }
+
+    console.log('[Storage] Plaintext secret migration başlıyor...');
+
+    // Her backend'in secret key'lerini tara
+    for (const backend of Object.keys(SECRET_FIELDS)) {
+      const secretKeys = SECRET_FIELDS[backend];
+      const dbKeys = secretKeys.map(k => `storage:${backend}:${k}`);
+      const placeholders = dbKeys.map((_, i) => `$${i + 1}`).join(',');
+
+      const res = await query(
+        `SELECT key, value FROM config WHERE key IN (${placeholders})`,
+        dbKeys
+      );
+
+      for (const row of res.rows) {
+        const value = row.value;
+        if (value === null || value === undefined || value === '') {
+          skipped++;
+          continue;
+        }
+        if (isEncrypted(value)) {
+          // Zaten şifreli
+          skipped++;
+          continue;
+        }
+        // Plaintext → encrypt + UPDATE
+        const encrypted = encrypt(value);
+        await query(
+          `UPDATE config SET value = $1, updated_at = NOW() WHERE key = $2`,
+          [encrypted, row.key]
+        );
+        migrated++;
+        console.log(`[Storage] Encrypted ${row.key} (was plaintext).`);
+      }
+    }
+
+    // Flag'i temizle
+    await query(`DELETE FROM config WHERE key = 'storage:secrets_migration_pending'`);
+
+    console.log(`[Storage] Plaintext secret migration tamam: ${migrated} encrypted, ${skipped} skipped.`);
+    return { migrated, skipped, deferred: false };
+  } catch (err) {
+    console.error('[Storage] Plaintext secret migration hatası:', err.message);
+    // Flag korunur — bir sonraki restart'ta tekrar dener
+    return { migrated, skipped, deferred: true };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,4 +626,6 @@ module.exports = {
   setBackendConfig,
   BACKEND_CONFIG_SCHEMA,
   SECRET_FIELDS,
+  // Migration (startup)
+  migratePlaintextSecrets,
 };

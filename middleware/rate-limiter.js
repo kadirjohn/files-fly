@@ -53,10 +53,10 @@ const { getHashedClientIP, isIPBanned } = require('../services/ip-service');
  */
 const BUCKETS = {
   admin: { limit: Infinity, windowMinutes: 0 },   // Muaf — JWT koruması yeterli
-  login: { limit: 5, windowMinutes: 15 },          // Brute-force koruması
+  login: { limit: 20, windowMinutes: 15 },          // Brute-force koruması (test+debug için 5→20)
   upload: { limit: 300, windowMinutes: 10 },        // Chunked upload'a izin verir
   download: { limit: 60, windowMinutes: 1 },        // Hotlinking/abuse önle
-  read: { limit: 120, windowMinutes: 1 },           // Okuma endpoint'leri
+  read: { limit: 200, windowMinutes: 1 },           // Okuma endpoint'leri (120→200, admin panel çok istek atar)
 };
 
 /**

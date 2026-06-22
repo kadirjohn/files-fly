@@ -31,12 +31,27 @@ ALTER TABLE files
 -- Eski kayıtlar local diskte (/data/uploads/<file>) saklanıyordu.
 -- storage_key = dosya adı (basename), storage_backend = 'local'.
 -- Bu blok yalnızca storage_key NULL olan satırları günceller (idempotent).
+--
+-- ÖNEMLİ: storage_path sütunu bu migration'ın önceki bir çalışmasında
+-- zaten DROP edilmiş olabilir. Bu yüzden UPDATE'i bir DO bloğuna alıp
+-- önce sütunun var olup olmadığını kontrol ediyoruz (true idempotency).
 
-UPDATE files
-SET storage_backend = 'local',
-    storage_key     = regexp_replace(storage_path, '^.*[/\\]', '')
-WHERE storage_key IS NULL
-  AND storage_path IS NOT NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'files' AND column_name = 'storage_path'
+    ) THEN
+        UPDATE files
+        SET storage_backend = 'local',
+            storage_key     = regexp_replace(storage_path, '^.*[/\\]', '')
+        WHERE storage_key IS NULL
+          AND storage_path IS NOT NULL;
+        RAISE NOTICE 'Backfill: storage_path → storage_key tamamlandı.';
+    ELSE
+        RAISE NOTICE 'Backfill: storage_path sütunu yok (zaten migrate edilmiş), atlanıyor.';
+    END IF;
+END $$;
 
 -- Hâlâ NULL kalan (storage_path yok ama somehow eklenmiş) kayıtlar için
 -- güvenli fallback: 'local' backend + NULL key (silinirken atlanır).
@@ -63,8 +78,10 @@ ALTER TABLE files
 
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM files WHERE storage_key IS NULL AND storage_path IS NULL) THEN
-        RAISE NOTICE 'Bazı satırlarda storage_key ve storage_path birlikte NULL — NOT NULL kısıtı atlandı.';
+    -- storage_path sütunu bu migration'ın önceki çalışmasında drop edilmiş
+    -- olabilir. Bu yüzden sadece storage_key NULL kontrolü yapıyoruz.
+    IF EXISTS (SELECT 1 FROM files WHERE storage_key IS NULL) THEN
+        RAISE NOTICE 'Bazı satırlarda storage_key NULL — NOT NULL kısıtı atlandı.';
     ELSE
         ALTER TABLE files ALTER COLUMN storage_key SET NOT NULL;
     END IF;

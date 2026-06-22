@@ -72,7 +72,13 @@ function setSecurityHeaders(res) {
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' https://unpkg.com https://cdnjs.cloudflare.com; " +
-    "style-src 'self' https://fonts.googleapis.com; " +
+    // 'unsafe-inline' style-src için: admin panel ve app.js inline style attribute
+    // kullanıyor (style="flex:1" vb.). Inline style'lar inline script kadar riskli
+    // değildir (style injection CSS exfiltration yapabilir ama script injection gibi
+    // kod çalıştıramaz). Mevcut kod yapısı inline style'lara bağlı olduğu için
+    // 'unsafe-inline' ekliyoruz. Gelecekte tüm inline style'lar class'lara taşınsa
+    // kaldırılabilir.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: blob:; " +
     "connect-src 'self' https://unpkg.com https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; " +
@@ -521,6 +527,16 @@ async function start() {
       console.error('[Server] Falling back to local storage.');
       storage.setActiveBackend('local');
       await storage.getDefaultProvider();
+    }
+
+    // Plaintext secret migration (migration 003 flag'i varsa — AES-256-GCM şifrele)
+    try {
+      const migResult = await storage.migratePlaintextSecrets();
+      if (!migResult.deferred && migResult.migrated > 0) {
+        console.log(`[Server] Secret migration: ${migResult.migrated} encrypted.`);
+      }
+    } catch (migErr) {
+      console.error('[Server] Secret migration error:', migErr.message);
     }
   } catch (err) {
     console.error('[Server] Storage init error (using default local):', err.message);

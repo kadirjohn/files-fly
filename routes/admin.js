@@ -500,6 +500,19 @@ addAdminRoute('PUT', '/api/admin/storage/backend', async (req, res, params, body
     invalidateCache();
     storage.setActiveBackend(backend);
 
+    // Audit log
+    try {
+      const { logAudit } = require('../services/audit-service');
+      await logAudit({
+        adminUser: req.adminUser.username,
+        action: 'storage_backend_switch',
+        target: backend,
+        metadata: { previous: storage.resolveBackendFromEnv() },
+      });
+    } catch (auditErr) {
+      console.error('[Admin] Audit log failed for backend switch:', auditErr.message);
+    }
+
     console.log(`[Admin] Storage backend switched to: ${backend} (by ${req.adminUser.username})`);
     sendJSON(res, 200, {
       active_backend: backend,
@@ -550,19 +563,42 @@ addAdminRoute('PUT', '/api/admin/storage/config/:backend', async (req, res, para
     return sendError(res, 400, 'Config değerleri gerekli');
   }
   try {
-    const result = await storage.setBackendConfig(backend, body);
+    // auditCtx ile setBackendConfig audit log yazar (who/what-backend/which-keys)
+    const result = await storage.setBackendConfig(backend, body, { adminUser: req.adminUser.username });
     console.log(`[Admin] Storage config updated for ${backend}: ${result.updated.join(', ') || '(no change)'} by ${req.adminUser.username}`);
     sendJSON(res, 200, {
       backend,
       updated: result.updated,
       skipped: result.skipped,
       message: result.updated.length > 0
-        ? `${result.updated.length} alan güncellendi. Provider yeniden başlatıldı.`
-        : 'Değişiklik yok (maskelenmiş secret atlandı veya boş değer).',
+        ? `${result.updated.length} alan güncellendi (secret'lar şifreli saklanır). Provider yeniden başlatıldı.`
+        : 'Değişiklik yok (mevcut secret korundu veya boş değer).',
     });
   } catch (err) {
     console.error('[Admin] Storage config PUT error:', err.message);
     sendError(res, 500, 'Failed to update storage config');
+  }
+});
+
+// =========================================================================
+// GET /api/admin/audit-log — Denetim Günlüğü (sayfalı)
+// =========================================================================
+// Admin işlemlerini (credential değişikliği, backend switch, ban/unban)
+// who/when/what biçiminde döndürür. Admin panelde "Son Değişiklikler" bölümü.
+
+addAdminRoute('GET', '/api/admin/audit-log', async (req, res, params, body) => {
+  try {
+    const { getAuditLog } = require('../services/audit-service');
+    const result = await getAuditLog({
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 50,
+      action: req.query.action || null,
+      adminUser: req.query.admin_user || null,
+    });
+    sendJSON(res, 200, result);
+  } catch (err) {
+    console.error('[Admin] Audit log error:', err.message);
+    sendError(res, 500, 'Failed to load audit log');
   }
 });
 

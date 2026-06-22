@@ -19,6 +19,11 @@ services:
       NODE_OPTIONS: --max-old-space-size=4096
       JWT_SECRET: changeme-in-production       # CHANGE THIS! Generate with: openssl rand -base64 64
       IP_HASH_SECRET: changeme-ip-secret       # CHANGE THIS! Generate with: openssl rand -base64 64
+      # Credential encryption master key (AES-256-GCM). Empty = plaintext (dev only).
+      # Generate with: openssl rand -base64 32
+      # IMPORTANT: Change this to your own key! If you change it later, all
+      # encrypted secrets in the DB become undecryptable (must be re-entered).
+      CREDENTIALS_MASTER_KEY: Thor3V2OPz0H7neiU2u33L+9DtnKlIGZHtzz/85GRV4=
       BASE_URL: http://localhost:9392          # Change to your actual domain in production
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123                 # CHANGE THIS!
