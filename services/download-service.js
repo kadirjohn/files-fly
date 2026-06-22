@@ -154,7 +154,7 @@ async function serveDownload(fileId, rangeHeader = null) {
 async function getFileMetadata(fileId) {
   const result = await query(
     `SELECT id, filename, file_size, mime_type, direct_url, expire_at,
-            is_encrypted, download_count, created_at
+            is_encrypted, encryption_iv, encryption_salt, download_count, created_at
      FROM files WHERE id = $1`,
     [fileId]
   );

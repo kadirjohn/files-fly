@@ -103,11 +103,13 @@ function renderFiles(files) {
     const item = document.createElement('div');
     item.className = `file-item${expired ? ' expired' : ''}`;
 
-    const icon = getFileIcon(file.mime_type, file.filename);
     const size = formatSize(file.file_size);
     const timeLeft = expired ? 'Süresi doldu (silindi)' : getTimeLeft(file.expire_at);
+    const isEncrypted = !!file.is_encrypted;
     const isImage = file.mime_type && file.mime_type.startsWith('image/');
-    const isPreviewable = !expired && (
+    // Şifreli dosyaların ham /dl'i ciphertext döndürür — inline preview anlamsız.
+    // Şifreli dosyalar için /files/:id önizleme sayfası (parola gate) açılır.
+    const isPreviewable = !expired && !isEncrypted && (
       isImage ||
       (file.mime_type && (
         file.mime_type.startsWith('video/') ||
@@ -119,33 +121,57 @@ function renderFiles(files) {
       ))
     );
 
-    // Thumbnail: image dosyaları için küçük resim (public dl endpoint)
-    const thumbHtml = isImage && !expired
-      ? `<img src="/api/files/${file.id}/dl" alt="" loading="lazy" class="file-item-thumb" onerror="this.outerHTML='<span class=\\'file-item-icon\\'>${icon}</span>'">`
-      : `<span class="file-item-icon">${icon}</span>`;
+    // Paylaşım linki: önizleme sayfası (şifreli dosyalar için parola gate burada açılır).
+    // Şifresiz dosyalar için de tutarlılık adına /files/:id kullanılır (preview page).
+    const previewPageUrl = `${window.location.origin}/files/${file.id}`;
+    // Doğrudan indirme linki (şifresiz dosyalar için hızlı indirme).
+    const directUrl = file.direct_url
+      ? (file.direct_url.startsWith('http') ? file.direct_url : window.location.origin + file.direct_url)
+      : null;
+    // Kopyalanacak/paylaşılacak link → önizleme sayfası (parola gate tutarlılığı).
+    const shareUrl = previewPageUrl;
+
+    // Set data attributes for event delegation
+    if (isPreviewable) {
+      item.dataset.previewId = file.id;
+      item.dataset.previewName = file.filename;
+      item.dataset.previewMime = file.mime_type;
+      item.classList.add('row-clickable');
+    }
+
+    // Build icon area: şifreli image'lar için raw thumbnail anlamsızdır → ikon göster.
+    // Şifresiz image'lar için thumbnail kullan.
+    let iconHtml;
+    if (isImage && !expired && !isEncrypted) {
+      iconHtml = `<img src="/api/files/${file.id}/dl" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeAttr(file.mime_type)}">`;
+    } else {
+      iconHtml = `<span class="file-item-icon">${getFileIcon(file.mime_type, file.filename)}</span>`;
+    }
+
+    // Şifreli rozet
+    const lockBadge = isEncrypted
+      ? `<span class="encrypted-lock-badge" title="Parola korumalı"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
+      : '';
 
     item.innerHTML = `
-      ${thumbHtml}
+      ${iconHtml}
       <div class="file-item-info">
-        <div class="file-item-name">${escapeHtml(file.filename)}</div>
+        <div class="file-item-name">${escapeHtml(file.filename)} ${lockBadge}</div>
         <div class="file-item-meta">
           ${size} — <span class="countdown" data-expire="${file.expire_at}">${timeLeft}</span>
           ${file.download_count > 0 ? ` — ${file.download_count} indirme` : ''}
+          ${isEncrypted ? ' — parola korumalı' : ''}
         </div>
       </div>
       <div class="file-item-actions">
         ${!expired ? `
-          ${isPreviewable ? `<button class="btn btn-ghost btn-sm preview-btn" data-id="${file.id}" data-name="${escapeHtml(file.filename)}" data-mime="${escapeHtml(file.mime_type)}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Önizle
-          </button>` : ''}
-          <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(file.direct_url)}">
+          <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl || '')}" title="Linki kopyala">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            Kopyala
+            <span class="copy-btn-label">Kopyala</span>
           </button>
-          <a href="${escapeHtml(file.direct_url)}" class="btn btn-primary btn-sm" download="${escapeHtml(file.filename)}">
+          <a href="${escapeAttr(previewPageUrl)}" class="btn btn-primary btn-sm" title="${isEncrypted ? 'Parola girerek indir' : 'Dosyayı indir'}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            İndir
+            ${isEncrypted ? 'Aç' : 'İndir'}
           </a>
         ` : `
           <span class="text-muted text-xs file-item-deleted">
@@ -156,6 +182,18 @@ function renderFiles(files) {
       </div>
     `;
 
+    // Fix image fallback without onerror inline script
+    const img = item.querySelector('img.file-item-thumb');
+    if (img) {
+      img.addEventListener('error', () => {
+        const mime = img.dataset.fallbackIcon || '';
+        const span = document.createElement('span');
+        span.className = 'file-item-icon';
+        span.innerHTML = getFileIcon(mime, file.filename);
+        img.replaceWith(span);
+      });
+    }
+
     DOM.fileList.appendChild(item);
 
     if (!expired) {
@@ -163,19 +201,34 @@ function renderFiles(files) {
     }
   }
 
-  // Link kopyalama
+  // Link kopyalama (click anywhere on button)
   document.querySelectorAll('.copy-link-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      copyToClipboard(btn.dataset.url);
-      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="color:var(--color-success)"><polyline points="20 6 9 17 4 12"/></svg> Kopyalandı!`;
-      setTimeout(() => { btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Kopyala`; }, 2000);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // file-item click'i tetiklemesin
+      const url = btn.dataset.url;
+      copyToClipboard(url);
+      const label = btn.querySelector('.copy-btn-label');
+      const svgEl = btn.querySelector('svg');
+      if (label) label.textContent = 'Kopyalandı!';
+      if (svgEl) svgEl.classList.add('icon-success');
+      btn.classList.add('btn-copied');
+      setTimeout(() => {
+        if (label) label.textContent = 'Kopyala';
+        if (svgEl) svgEl.classList.remove('icon-success');
+        btn.classList.remove('btn-copied');
+      }, 2000);
     });
   });
 
-  // Preview butonları
-  document.querySelectorAll('.preview-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      openPreview(btn.dataset.id, btn.dataset.name, btn.dataset.mime);
+  // İndir butonunun file-item click'i tetiklememesi
+  document.querySelectorAll('.file-item a.btn-primary').forEach(a => {
+    a.addEventListener('click', (e) => e.stopPropagation());
+  });
+
+  // File item'a tıklayınca önizleme aç (previewable olan item'larda)
+  document.querySelectorAll('.file-item[data-preview-id]').forEach(item => {
+    item.addEventListener('click', () => {
+      openPreview(item.dataset.previewId, item.dataset.previewName, item.dataset.previewMime);
     });
   });
 }
@@ -315,6 +368,9 @@ function startCountdown(itemElement, expireAt) {
     if (new Date(expireAt) < new Date()) {
       countdownEl.textContent = 'Süresi doldu (silindi)';
       itemElement.classList.add('expired');
+      // Remove preview capability
+      delete itemElement.dataset.previewId;
+      itemElement.classList.remove('row-clickable');
       const actions = itemElement.querySelector('.file-item-actions');
       if (actions) {
         actions.innerHTML = `<span class="text-muted text-xs file-item-deleted"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Silindi</span>`;
@@ -396,6 +452,16 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+// Attribute değerlerinde kullanmak için (özellikle data-* ve href)
+function escapeAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function copyToClipboard(text) {

@@ -135,10 +135,16 @@ function serveStaticFile(urlPath, res) {
   // Dosyayı oku ve sun
   try {
     const content = fs.readFileSync(filePath);
+    // HTML ve JS/CSS için no-cache (güncellemelerin her zaman yüklenmesi için).
+    // Sadece immutable asset'ler (favicon, font, image) cache'lenir.
+    const noCacheExt = ['.html', '.js', '.css'];
+    const cacheControl = noCacheExt.includes(ext)
+      ? 'no-cache, must-revalidate'
+      : 'public, max-age=3600';
     res.writeHead(200, {
       'Content-Type': mimeType,
       'Content-Length': content.length,
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+      'Cache-Control': cacheControl,
     });
     res.end(content);
     return true;

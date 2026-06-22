@@ -768,9 +768,9 @@ function showToast(message, type = 'info') {
   toast.setAttribute('aria-live', 'polite');
 
   const icons = {
-    success: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-success)"><polyline points="20 6 9 17 4 12"/></svg>`,
-    error:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-error)"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
-    info:    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" style="flex-shrink:0;color:var(--color-upload)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+    success: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" class="icon-success"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error:   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" class="icon-error"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    info:    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" class="icon-info"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
   };
   toast.innerHTML = `<span aria-hidden="true">${icons[type] || icons.info}</span> ${message}`;
 
@@ -801,127 +801,25 @@ function getCookie(name) {
 // =========================================================================
 // Web Crypto API — AES-GCM Parola Koruması (Faz 4.3)
 // =========================================================================
+// Şifreleme/deşifreleme mantığı artık paylaşımlı /js/crypto.js (FFCrypto)
+// içinde. app.js, file.js ve admin.js aynı yardımcıyı kullanır — kod tekrarı
+// yok ve parola gate ile tutarlı çalışır.
 
 /**
- * Dosyayı AES-GCM ile şifreler.
- * PBKDF2 ile paroladan key türetir, AES-GCM ile şifreler.
- *
+ * Dosyayı AES-GCM ile şifreler (FFCrypto'ya delege).
  * @param {File|Blob} file - Şifrelenecek dosya
  * @param {string} password - Parola
  * @returns {Promise<{ciphertext: Blob, iv: string, salt: string}>}
  */
 async function encryptFile(file, password) {
-  // 1. Salt oluştur (16 byte random)
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-
-  // 2. PBKDF2 ile key türet (100,000 iterasyon)
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
-  );
-
-  const aesKey = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt']
-  );
-
-  // 3. IV oluştur (12 byte — AES-GCM standardı)
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  // 4. Dosyayı ArrayBuffer olarak oku
-  const fileBuffer = await file.arrayBuffer();
-
-  // 5. AES-GCM ile şifrele
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv },
-    aesKey,
-    fileBuffer
-  );
-
-  // 6. Base64 encode (salt, iv) ve ciphertext'i Blob yap
-  return {
-    ciphertext: new Blob([ciphertext], { type: 'application/octet-stream' }),
-    iv: bufferToBase64(iv),
-    salt: bufferToBase64(salt),
-  };
+  return FFCrypto.encryptFile(file, password);
 }
 
 /**
- * Şifreli dosyayı AES-GCM ile çözer.
- *
- * @param {ArrayBuffer} ciphertext - Şifreli veri
- * @param {string} ivBase64 - Base64 IV
- * @param {string} saltBase64 - Base64 salt
- * @param {string} password - Parola
- * @returns {Promise<ArrayBuffer>} - Çözülmüş dosya içeriği
+ * Şifreli dosyayı AES-GCM ile çözer (FFCrypto'ya delege).
  */
 async function decryptFile(ciphertext, ivBase64, saltBase64, password) {
-  // 1. Base64 decode
-  const iv = base64ToBuffer(ivBase64);
-  const salt = base64ToBuffer(saltBase64);
-
-  // 2. PBKDF2 ile key türet (aynı parametrelerle)
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
-  );
-
-  const aesKey = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt']
-  );
-
-  // 3. AES-GCM ile deşifrele
-  try {
-    const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv },
-      aesKey,
-      ciphertext
-    );
-    return plaintext;
-  } catch (err) {
-    throw new Error('Şifre çözme başarısız. Parola yanlış olabilir.');
-  }
-}
-
-/**
- * Uint8Array'i Base64 string'e çevirir.
- */
-function bufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-/**
- * Base64 string'i Uint8Array'e çevirir.
- */
-function base64ToBuffer(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+  return FFCrypto.decryptFile(ciphertext, ivBase64, saltBase64, password);
 }
 
 // =========================================================================
@@ -1166,7 +1064,7 @@ const I18N = {
     skipLink: 'Ana içeriğe atla',
     myFiles: '📂 Dosyalarım',
     pageTitle: 'Dosya Paylaş',
-    pageDesc: 'Dosyanızı yükleyin, linki paylaşın. Belirlediğiniz süre dolunca otomatik silinir.',
+    pageDesc: 'Başlamak için dosyanızı yükleyin, ve ardından paylaşmak istediğiniz kişi ile paylaşın. Dosyalar belirlediğiniz süre dolunca otomatik silinecek.',
     expireLabel: '⏱️ Saklama Süresi',
     expire1h: '1 Saat',
     expire6h: '6 Saat',
@@ -1174,7 +1072,7 @@ const I18N = {
     expire24h: '24 Saat (1 Gün)',
     expire48h: '48 Saat (2 Gün)',
     dropZoneTitle: 'Dosyanızı sürükleyin veya seçin',
-    passwordToggle: '🔒 Parola koruması ekle (opsiyonel)',
+    passwordToggle: 'Dosyaları parola ile koru',
     passwordPlaceholder: 'Parola girin...',
     uploadBtn: '🚀 Dosyayı Yükle',
     uploadSuccess: 'Yükleme Başarılı!',
@@ -1186,7 +1084,7 @@ const I18N = {
     copyBtn: '📋 Kopyala',
     qrText: 'Mobil cihazdan taratarak dosyaya erişebilirsiniz.',
     emailShare: '📧 E-posta ile Paylaş',
-    passwordInfo: '⚠️ Bu dosya parola korumalıdır. İndirme linkinin sonundaki <code>#...</code> kısmı şifre hash\'idir. Linki paylaşırken bu kısmı da iletmeniz gerekir.',
+    passwordInfo: 'Bu dosya parola ile korumalıdır. Karşı taraf linke gittiğinde bir parola ekranı açılır ve parolayı girmesi istenir — linkin sonuna bir şey eklemenize gerek yoktur. Parolayı güvenli ve ayrı bir kanaldan karşı tarafa iletin.',
     newUploadBtn: '➕ Yeni Dosya Yükle',
     uploadFailed: 'Yükleme Başarısız',
     retryBtn: '🔄 Tekrar Dene',
@@ -1223,7 +1121,7 @@ const I18N = {
     skipLink: 'Skip to main content',
     myFiles: '📂 My Files',
     pageTitle: 'Share a File',
-    pageDesc: 'Upload your file, share the link. It will be automatically deleted after the set time.',
+    pageDesc: 'To get started, upload your file and then share it with the person you want to share it with.',
     expireLabel: '⏱️ Retention Time',
     expire1h: '1 Hour',
     expire6h: '6 Hours',
@@ -1231,7 +1129,7 @@ const I18N = {
     expire24h: '24 Hours (1 Day)',
     expire48h: '48 Hours (2 Days)',
     dropZoneTitle: 'Drag & drop your file or click to select',
-    passwordToggle: '🔒 Add password protection (optional)',
+    passwordToggle: 'Protect files with a password',
     passwordPlaceholder: 'Enter password...',
     uploadBtn: '🚀 Upload File',
     uploadSuccess: 'Upload Successful!',
@@ -1243,7 +1141,7 @@ const I18N = {
     copyBtn: '📋 Copy',
     qrText: 'Scan with your mobile device to access the file.',
     emailShare: '📧 Share via Email',
-    passwordInfo: '⚠️ This file is password protected. The <code>#...</code> part at the end of the download link is the password hash. You must share this part too.',
+    passwordInfo: 'This file is protected with a password. When the recipient opens the link, a password prompt appears and they are asked to enter the password — you do not need to add anything to the end of the link. Send the password to the recipient via a separate, secure channel.',
     newUploadBtn: '➕ Upload New File',
     uploadFailed: 'Upload Failed',
     retryBtn: '🔄 Retry',

@@ -21,6 +21,11 @@ let filesPage = 1;
 let filesTotalPages = 1;
 let previewFileId = null;
 
+// Parola gate state — o anki şifreli dosya için preview metadata
+let gateFileMeta = null;
+let gateMode = 'preview'; // 'preview' | 'download'
+let gateDecryptedBlobUrl = null;
+
 // =========================================================================
 // DOM Referansları
 // =========================================================================
@@ -62,6 +67,18 @@ const DOM = {
   previewCloseBtn: document.getElementById('preview-close-btn'),
   previewDownloadBtn: document.getElementById('preview-download-btn'),
   previewDeleteBtn: document.getElementById('preview-delete-btn'),
+
+  // Parola Gate (şifreli dosyalar)
+  adminPasswordGate: document.getElementById('admin-password-gate'),
+  adminGateFilename: document.getElementById('admin-gate-filename'),
+  adminGatePasswordInput: document.getElementById('admin-gate-password-input'),
+  adminGateToggleVisibility: document.getElementById('admin-gate-toggle-visibility'),
+  adminGateError: document.getElementById('admin-gate-error'),
+  adminGateProgress: document.getElementById('admin-gate-progress'),
+  adminGateProgressFill: document.getElementById('admin-gate-progress-fill'),
+  adminGateProgressText: document.getElementById('admin-gate-progress-text'),
+  adminGatePreviewBtn: document.getElementById('admin-gate-preview-btn'),
+  adminGateDownloadBtn: document.getElementById('admin-gate-download-btn'),
 
   // IPs
   banIpInput: document.getElementById('ban-ip-input'),
@@ -321,33 +338,36 @@ async function loadFiles(page = 1) {
     } else {
       DOM.filesTableBody.innerHTML = data.files.map(f => {
         const expired = new Date(f.expire_at) < new Date();
-        const expiredSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="color:var(--color-error);vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+        // CSP-safe: use class instead of inline style
+        const expiredSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="icon-error icon-va-mid"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
         const timeLeft = expired ? `${expiredSvg} Süresi doldu` : getTimeLeft(f.expire_at);
         const isImage = f.mime_type && f.mime_type.startsWith('image/');
         const icon = getFileIcon(f.mime_type);
         const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
 
-        // Image ise thumbnail — /api/files/:id/dl public endpoint kullan (sharp gerekmez)
-        // preview-img yerine dl endpoint: token gerektirmez, direkt resmi döndürür
-        const thumbSrc = isImage ? `/api/files/${f.id}/dl` : null;
-        const iconOrThumb = isImage && thumbSrc
-          ? `<img src="${thumbSrc}" alt="" loading="lazy" class="file-item-thumb" onerror="this.outerHTML='<span class=\\'file-item-icon\\'>${icon}</span>'">`
+        // Image thumbnail — without onerror inline script (fixed later via addEventListener)
+        // Şifreli image'lar için /dl ciphertext döndürür (görüntülenemez) — ikon göster.
+        const showImageThumb = isImage && !f.is_encrypted;
+        const iconOrThumb = showImageThumb
+          ? `<img src="/api/files/${f.id}/dl" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}">`
           : `<span class="file-item-icon">${icon}</span>`;
 
+        // Şifreli dosyalar için kilit rozeti
+        const lockBadge = f.is_encrypted
+          ? `<span class="encrypted-lock-badge" title="Parola korumalı"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
+          : '';
+
         return `
-          <tr>
+          <tr class="file-table-row row-clickable" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" data-encrypted="${f.is_encrypted ? '1' : '0'}">
             <td>
               ${iconOrThumb}
-              <span title="${escapeHtml(f.filename)}">${truncate(f.filename, 30)}</span>
+              <span title="${escapeHtml(f.filename)}">${truncate(f.filename, 30)}</span> ${lockBadge}
             </td>
             <td><span class="mono" title="${f.ip_hash}">${shortHash}</span></td>
             <td>${formatSize(f.file_size)}</td>
             <td>${f.mime_type || '-'}</td>
             <td>${timeLeft}</td>
             <td>
-              <button class="btn btn-ghost btn-sm btn-icon preview-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Önizle" aria-label="Önizle">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
               <button class="btn btn-ghost btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
               </button>
@@ -355,6 +375,17 @@ async function loadFiles(page = 1) {
           </tr>
         `;
       }).join('');
+
+      // Fix image fallback (no onerror inline script)
+      DOM.filesTableBody.querySelectorAll('img.file-item-thumb').forEach(img => {
+        img.addEventListener('error', () => {
+          const mime = img.dataset.fallbackIcon || '';
+          const span = document.createElement('span');
+          span.className = 'file-item-icon';
+          span.innerHTML = getFileIcon(mime);
+          img.replaceWith(span);
+        });
+      });
     }
 
     // Sayfalama
@@ -362,12 +393,15 @@ async function loadFiles(page = 1) {
     DOM.filesPrevBtn.disabled = data.page <= 1;
     DOM.filesNextBtn.disabled = data.page >= data.pages;
 
-    // Event listener'lar
-    document.querySelectorAll('.preview-btn').forEach(btn => {
-      btn.addEventListener('click', () => openPreview(btn.dataset.id, btn.dataset.name));
+    // Event listener'lar — row click = preview, delete button = sil
+    document.querySelectorAll('.file-table-row').forEach(row => {
+      row.addEventListener('click', () => openPreview(row.dataset.id, row.dataset.name));
     });
     document.querySelectorAll('.delete-file-btn').forEach(btn => {
-      btn.addEventListener('click', () => deleteFile(btn.dataset.id, btn.dataset.name));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // row click'i engelle
+        deleteFile(btn.dataset.id, btn.dataset.name);
+      });
     });
   } catch (err) {
     console.error('[loadFiles] error:', err);
@@ -411,6 +445,13 @@ async function openPreview(fileId, filename) {
   try {
     const resp = await apiFetch(`/api/admin/files/${fileId}/preview`);
     const data = await resp.json();
+
+    // Şifreli dosya: parola gate aç (preview modal'ı kapat, gate'i göster)
+    if (data.type === 'encrypted') {
+      closePreview();
+      openAdminPasswordGate(data, 'preview');
+      return;
+    }
 
     switch (data.type) {
       case 'text':
@@ -497,6 +538,206 @@ DOM.previewDeleteBtn.addEventListener('click', () => {
     DOM.previewPanel.classList.add('hidden');
   }
 });
+
+// =========================================================================
+// Parola Gate (şifreli dosyalar için önizleme/indirme)
+// =========================================================================
+// Admin panelinde şifreli dosyaların ham /dl endpoint'i ciphertext döndürür
+// (görüntülenemez). Bu yüzden parola gate ile tarayıcıda deşifre edilir:
+//   - "Önizle": deşifre edip preview modal'ında göster (image/video/pdf/text)
+//   - "Çöz ve İndir": deşifre edip orijinal dosyayı indir
+
+function openAdminPasswordGate(meta, mode) {
+  gateFileMeta = meta;
+  gateMode = mode || 'preview';
+  if (gateDecryptedBlobUrl) { URL.revokeObjectURL(gateDecryptedBlobUrl); gateDecryptedBlobUrl = null; }
+
+  DOM.adminGateFilename.textContent = meta.filename || 'Dosya';
+  DOM.adminGatePasswordInput.value = '';
+  DOM.adminGateError.classList.add('hidden');
+  DOM.adminGateProgress.classList.add('hidden');
+  DOM.adminGateProgressFill.style.width = '0%';
+  DOM.adminPasswordGate.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => DOM.adminGatePasswordInput.focus(), 50);
+}
+
+function closeAdminPasswordGate() {
+  DOM.adminPasswordGate.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// Modal dışına tıklayınca kapat
+DOM.adminPasswordGate.addEventListener('click', (e) => {
+  if (e.target === DOM.adminPasswordGate) closeAdminPasswordGate();
+});
+
+// Escape ile kapat
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !DOM.adminPasswordGate.classList.contains('hidden')) {
+    closeAdminPasswordGate();
+  }
+});
+
+// Parola göster/gizle
+DOM.adminGateToggleVisibility.addEventListener('click', () => {
+  const input = DOM.adminGatePasswordInput;
+  input.type = input.type === 'password' ? 'text' : 'password';
+});
+
+// Enter ile preview
+DOM.adminGatePasswordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') DOM.adminGatePreviewBtn.click();
+});
+
+// "Önizle" butonu
+DOM.adminGatePreviewBtn.addEventListener('click', () => {
+  handleAdminGateSubmit('preview');
+});
+
+// "Çöz ve İndir" butonu
+DOM.adminGateDownloadBtn.addEventListener('click', () => {
+  handleAdminGateSubmit('download');
+});
+
+async function handleAdminGateSubmit(mode) {
+  if (!gateFileMeta) return;
+  gateMode = mode;
+
+  const password = DOM.adminGatePasswordInput.value;
+  if (!password) {
+    showAdminGateError('Lütfen parolayı girin.');
+    return;
+  }
+  if (!gateFileMeta.encryption_iv || !gateFileMeta.encryption_salt) {
+    showAdminGateError('Şifreleme bilgileri eksik. Dosya hasarlı olabilir.');
+    return;
+  }
+
+  DOM.adminGateError.classList.add('hidden');
+  DOM.adminGateProgress.classList.remove('hidden');
+  setAdminGateProgress(10, 'Şifreli dosya indiriliyor...');
+
+  // Butonları disable et
+  DOM.adminGatePreviewBtn.disabled = true;
+  DOM.adminGateDownloadBtn.disabled = true;
+
+  try {
+    // 1. Ciphertext'i indir (admin auth gerekli değil — /api/files/:id/dl public)
+    const dlResp = await fetch(gateFileMeta.download_url || `/api/files/${gateFileMeta.id || previewFileId}/dl`);
+    if (!dlResp.ok) {
+      throw new Error('Dosya indirilemedi (HTTP ' + dlResp.status + ').');
+    }
+    const ciphertext = await dlResp.arrayBuffer();
+    setAdminGateProgress(50, 'Şifre çözülüyor...');
+
+    // 2. Deşifrele (FFCrypto — crypto.js)
+    const plaintext = await FFCrypto.decryptFile(
+      ciphertext,
+      gateFileMeta.encryption_iv,
+      gateFileMeta.encryption_salt,
+      password
+    );
+
+    setAdminGateProgress(90, 'İçerik hazırlanıyor...');
+
+    // 3. Blob URL
+    const blob = new Blob([plaintext], { type: gateFileMeta.mime_type || 'application/octet-stream' });
+    if (gateDecryptedBlobUrl) URL.revokeObjectURL(gateDecryptedBlobUrl);
+    gateDecryptedBlobUrl = URL.createObjectURL(blob);
+
+    setAdminGateProgress(100, 'Hazır!');
+    DOM.adminGateProgressText.textContent = 'Kilit açıldı.';
+
+    if (gateMode === 'download') {
+      // İndir
+      const a = document.createElement('a');
+      a.href = gateDecryptedBlobUrl;
+      a.download = gateFileMeta.filename || 'dosya';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(closeAdminPasswordGate, 500);
+    } else {
+      // Önizle — deşifre edilmiş blob'ı preview modal'ında göster
+      closeAdminPasswordGate();
+      showDecryptedPreview(gateFileMeta, gateDecryptedBlobUrl);
+    }
+  } catch (err) {
+    console.error('[admin gate] decrypt error:', err);
+    showAdminGateError(err.message || 'Şifre çözme başarısız. Parola yanlış olabilir.');
+    DOM.adminGateProgress.classList.add('hidden');
+  } finally {
+    DOM.adminGatePreviewBtn.disabled = false;
+    DOM.adminGateDownloadBtn.disabled = false;
+  }
+}
+
+/**
+ * Deşifre edilmiş blob URL'i preview modal'ında gösterir.
+ * (Admin /preview endpoint'i şifreli dosyalar için ciphertext/encrypted tipi döndürür,
+ * bu yüzden deşifre edilmiş içeriği burada elle render ederiz.)
+ */
+function showDecryptedPreview(meta, blobUrl) {
+  previewFileId = meta.id || previewFileId;
+  const titleIcon = DOM.previewTitle.querySelector('svg');
+  const titleIconHtml = titleIcon ? titleIcon.outerHTML : '';
+  DOM.previewTitle.innerHTML = titleIconHtml + ` Dosya Önizleme: ${escapeHtml(meta.filename)}`;
+  DOM.previewDownloadBtn.href = blobUrl;
+  DOM.previewDownloadBtn.setAttribute('download', meta.filename || '');
+  DOM.previewPanel.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  const mimeType = meta.mime_type || 'application/octet-stream';
+  const filename = meta.filename || 'Dosya';
+
+  if (mimeType.startsWith('image/')) {
+    DOM.previewContent.innerHTML = `
+      <a href="${blobUrl}" target="_blank" rel="noopener" title="Tam çözünürlük aç">
+        <img src="${blobUrl}" alt="${escapeHtml(filename)}">
+      </a>
+      <p class="text-muted text-xs mt-1">Deşifre edilmiş önizleme</p>
+    `;
+  } else if (mimeType.startsWith('video/')) {
+    DOM.previewContent.innerHTML = `
+      <video controls style="max-width:100%;">
+        <source src="${blobUrl}" type="${mimeType}">
+        Tarayıcınız video oynatmayı desteklemiyor.
+      </video>
+    `;
+  } else if (mimeType.startsWith('audio/')) {
+    DOM.previewContent.innerHTML = `
+      <audio controls style="width:100%;">
+        <source src="${blobUrl}" type="${mimeType}">
+        Tarayıcınız ses oynatmayı desteklemiyor.
+      </audio>
+    `;
+  } else if (mimeType === 'application/pdf') {
+    DOM.previewContent.innerHTML = `
+      <iframe src="${blobUrl}" style="width:100%;height:400px;border:none;border-radius:8px;"></iframe>
+    `;
+  } else {
+    // Text/octet-stream — blob'u text olarak okumayı dene
+    fetch(blobUrl).then(r => r.text()).then(text => {
+      DOM.previewContent.innerHTML = `<pre>${escapeHtml(text.substring(0, 100 * 1024))}</pre>`;
+      if (text.length >= 100 * 1024) {
+        DOM.previewContent.innerHTML += '<p class="text-muted text-xs mt-1">Dosya çok büyük, sadece ilk 100KB gösteriliyor.</p>';
+      }
+    }).catch(() => {
+      DOM.previewContent.innerHTML = `<p class="text-muted">Bu dosya türü için önizleme yok. İndirme linkini kullanın.</p>`;
+    });
+  }
+}
+
+function showAdminGateError(message) {
+  DOM.adminGateError.textContent = message;
+  DOM.adminGateError.classList.remove('hidden');
+}
+
+function setAdminGateProgress(percent, text) {
+  DOM.adminGateProgressFill.style.width = percent + '%';
+  DOM.adminGateProgressText.textContent = text;
+}
 
 // =========================================================================
 // Dosya Silme

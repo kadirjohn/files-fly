@@ -23,9 +23,30 @@ addRoute('GET', '/files/:id', async (req, res, params, body) => {
   }
 });
 
-// /files/:id/dl → /api/files/:id/dl'e yönlendir (kullanıcı dostu kısa link)
+// /files/:id/dl → kullanıcı dostu kısa link.
+// Şifreli dosyalar için ham /api/files/:id/dl binary döndürür (kullanıcıya anlamsız
+// ciphertext gösterir). Bu yüzden şifreli dosyalarda önizleme sayfasına (parola gate)
+// yönlendir; şifresiz dosyalarda doğrudan indirmeye yönlendir.
 addRoute('GET', '/files/:id/dl', async (req, res, params, body) => {
-  res.writeHead(302, { Location: `/api/files/${params.id}/dl` });
+  const fileId = params.id;
+  if (!fileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileId)) {
+    return sendError(res, 400, 'Invalid file ID format');
+  }
+
+  try {
+    const metadata = await getFileMetadata(fileId);
+    if (metadata && !metadata.expired && metadata.is_encrypted) {
+      // Şifreli → önizleme sayfasındaki parola gate'e yönlendir
+      res.writeHead(302, { Location: `/files/${fileId}` });
+      res.end();
+      return;
+    }
+  } catch (err) {
+    // Metadata alınamazsa doğrudan indirmeye düş (en iyi çaba)
+  }
+
+  // Şifresiz (veya metadata alınamadı) → doğrudan indirme
+  res.writeHead(302, { Location: `/api/files/${fileId}/dl` });
   res.end();
 });
 
@@ -64,6 +85,10 @@ addRoute('GET', '/api/files/:id', async (req, res, params, body) => {
       direct_url: metadata.direct_url,
       expire_at: metadata.expire_at,
       is_encrypted: metadata.is_encrypted,
+      // Şifreli dosyalar için client-side deşifreleme parametreleri (parola gate).
+      // Parola kullanıcıdan alınır, PBKDF2 key türetimi tarayıcıda yapılır.
+      encryption_iv: metadata.encryption_iv || null,
+      encryption_salt: metadata.encryption_salt || null,
       download_count: metadata.download_count,
       created_at: metadata.created_at,
       expired: false,

@@ -247,6 +247,52 @@
 
 </main>
 
+<!-- Parola Gate Modal (şifreli dosya önizleme/indirme için) -->
+<div id="admin-password-gate" class="preview-panel hidden" role="dialog" aria-modal="true" aria-labelledby="admin-gate-title">
+    <div class="password-gate-box">
+        <div class="password-gate-icon-wrap" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="36" height="36"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h2 id="admin-gate-title" class="text-center mb-1">Parola Korumalı Dosya</h2>
+        <p class="text-center text-muted text-sm mb-2">
+            Bu dosya parola korumalıdır. Önizlemek veya indirmek için parolayı girin.
+        </p>
+        <p class="text-center text-sm mb-2">
+            <strong id="admin-gate-filename"></strong>
+        </p>
+
+        <div class="form-group">
+            <label class="form-label" for="admin-gate-password-input">Parola</label>
+            <div class="password-input-row">
+                <input type="password" id="admin-gate-password-input" class="form-input" placeholder="Parolayı girin..." autocomplete="off">
+                <button type="button" id="admin-gate-toggle-visibility" class="btn btn-ghost btn-icon" aria-label="Parolayı göster/gizle" title="Parolayı göster/gizle">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="admin-gate-error" class="text-error text-sm text-center mb-1 hidden"></div>
+
+        <div id="admin-gate-progress" class="hidden mt-1">
+            <div class="progress-bar">
+                <div class="progress-fill" id="admin-gate-progress-fill"></div>
+            </div>
+            <p class="text-center text-muted text-sm mt-1" id="admin-gate-progress-text">İşleniyor...</p>
+        </div>
+
+        <div class="flex gap-1 mt-2">
+            <button id="admin-gate-preview-btn" class="btn btn-secondary btn-full" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Önizle
+            </button>
+            <button id="admin-gate-download-btn" class="btn btn-success btn-full" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Çöz ve İndir
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Önizleme Modal (body altında — position:fixed doğru çalışsın) -->
 <div id="preview-panel" class="preview-panel hidden" role="dialog" aria-modal="true">
     <div class="preview-modal-box">
@@ -273,6 +319,7 @@
     </div>
 </div>
 
+<script src="/js/crypto.js"></script>
 <script src="/js/admin.js"></script>
 
 </body>

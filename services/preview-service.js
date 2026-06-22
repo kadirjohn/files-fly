@@ -48,7 +48,8 @@ const THUMB_QUALITY = 80;             // JPEG kalitesi (1-100)
 async function getPreview(fileId) {
   // Metadata'yı al
   const result = await query(
-    `SELECT id, filename, file_size, mime_type, storage_path, expire_at
+    `SELECT id, filename, file_size, mime_type, storage_path, expire_at,
+            is_encrypted, encryption_iv, encryption_salt
      FROM files WHERE id = $1`,
     [fileId]
   );
@@ -71,6 +72,27 @@ async function getPreview(fileId) {
   }
 
   const mimeType = file.mime_type || 'application/octet-stream';
+
+  // -----------------------------------------------------------------------
+  // Şifreli dosyalar: ham içerik ciphertext'tir (text/image/video/pdf preview
+  // anlamsız olur). Admin paneli parola gate ile deşifre edip preview gösterir.
+  // Burada sadece şifreleme metadata'sını döndür.
+  // -----------------------------------------------------------------------
+  if (file.is_encrypted) {
+    return {
+      type: 'encrypted',
+      id: file.id,
+      mime_type: mimeType,
+      filename: file.filename,
+      is_encrypted: true,
+      encryption_iv: file.encryption_iv || null,
+      encryption_salt: file.encryption_salt || null,
+      file_size: file.file_size,
+      // Ham ciphertext indirme URL'i (admin parolayı girdikten sonra fetch eder)
+      download_url: `/api/files/${file.id}/dl`,
+      content: null,
+    };
+  }
 
   // -----------------------------------------------------------------------
   // MIME type'a göre preview stratejisi

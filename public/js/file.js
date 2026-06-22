@@ -1,13 +1,16 @@
 /**
  * file.js — Dosya Önizleme Sayfası Script'i
  *
- * URL: /files/:id
+ * URL: /files/:id  (veya /files/:id/dl → routes/files.js şifreliyse buraya yönlendirir)
  * Akış:
  *   1. URL'den fileId çıkar
  *   2. /api/files/:id → metadata al
  *   3. Dosya bilgilerini göster (isim, boyut, tür, süre)
- *   4. Image ise direkt görüntüle (full download URL ile)
- *   5. İndirme butonu = /api/files/:id/dl
+ *   4. Şifresizse: image ise direkt önizleme, buton = /api/files/:id/dl
+ *   5. Şifreliyse: parola gate modal'ı aç → parola girilince
+ *      a) ciphertext'i fetch et, AES-GCM ile deşifrele
+ *      b) image ise preview göster, tüm dosyalar için indir butonu aktif olur
+ *      c) İndir butonu deşifre edilmiş blob'u indirir (ham ciphertext değil)
  */
 
 (function () {
@@ -22,6 +25,7 @@
     fileIcon: document.getElementById('file-icon'),
     fileName: document.getElementById('file-name'),
     fileMeta: document.getElementById('file-meta'),
+    encryptedBadge: document.getElementById('encrypted-badge'),
     imagePreview: document.getElementById('image-preview'),
     previewImg: document.getElementById('preview-img'),
     expiredWarning: document.getElementById('expired-warning'),
@@ -32,7 +36,16 @@
     infoExpire: document.getElementById('info-expire'),
     infoCreated: document.getElementById('info-created'),
     downloadBtn: document.getElementById('download-btn'),
-    passwordProtected: document.getElementById('password-protected'),
+    // Parola gate
+    passwordGate: document.getElementById('password-gate'),
+    gateFilename: document.getElementById('gate-filename'),
+    gatePasswordInput: document.getElementById('gate-password-input'),
+    gateToggleVisibility: document.getElementById('gate-toggle-visibility'),
+    gateError: document.getElementById('gate-error'),
+    gateProgress: document.getElementById('gate-progress'),
+    gateProgressFill: document.getElementById('gate-progress-fill'),
+    gateProgressText: document.getElementById('gate-progress-text'),
+    gateSubmitBtn: document.getElementById('gate-submit-btn'),
   };
 
   // =========================================================================
@@ -46,6 +59,10 @@
   }
   const fileId = match[1];
   const isDownload = !!match[2];
+
+  // Aktif dosya metadata'sı + deşifre edilmiş blob URL'i (şifreli dosyalar için)
+  let fileMeta = null;
+  let decryptedBlobUrl = null;
 
   // =========================================================================
   // Metadata'yı çek
@@ -75,14 +92,20 @@
       }
 
       const meta = await resp.json();
+      fileMeta = meta;
 
-      // Eğer /files/:id/dl ise ve şifresizse → direkt indirmeye yönlendir
-      if (isDownload) {
+      // Şifresiz /files/:id/dl ise → direkt indirmeye yönlendir
+      if (isDownload && !meta.is_encrypted) {
         window.location.href = '/api/files/' + fileId + '/dl';
         return;
       }
 
       renderFile(meta);
+
+      // Şifreliyse parola gate'i aç
+      if (meta.is_encrypted) {
+        openPasswordGate();
+      }
     } catch (err) {
       console.error('[file.js] loadFile error:', err);
       showError('Bağlantı Hatası', 'Sunucuya ulaşılamıyor. İnternet bağlantınızı kontrol edin.');
@@ -101,11 +124,7 @@
     DOM.fileMeta.textContent = meta.mime_type || 'application/octet-stream';
 
     // İkon
-    DOM.fileIcon.textContent = getFileIcon(meta.mime_type);
-
-    // İndirme linki (parola hash'i URL fragment'ında korunur)
-    const dlUrl = '/api/files/' + fileId + '/dl' + (window.location.hash || '');
-    DOM.downloadBtn.href = dlUrl;
+    DOM.fileIcon.innerHTML = getFileIconSvg(meta.mime_type);
 
     // İndirme sayacı
     if (meta.download_count && meta.download_count > 0) {
@@ -119,16 +138,43 @@
     DOM.infoExpire.textContent = meta.expire_at ? formatDateTime(meta.expire_at) : '-';
     DOM.infoCreated.textContent = meta.created_at ? formatDateTime(meta.created_at) : '-';
 
-    // Image ise direkt önizleme göster (full download URL, tarayıcı streaming)
-    if (meta.mime_type && meta.mime_type.startsWith('image/') && !meta.is_encrypted) {
-      DOM.imagePreview.classList.remove('hidden');
-      DOM.previewImg.src = dlUrl;
+    // Şifreli rozet
+    if (meta.is_encrypted) {
+      DOM.encryptedBadge.classList.remove('hidden');
+    } else {
+      DOM.encryptedBadge.classList.add('hidden');
     }
 
-    // Parola korumalı uyarısı
-    if (meta.is_encrypted) {
-      DOM.passwordProtected.classList.remove('hidden');
+    // İndirme butonu handler'ı
+    setupDownloadButton(meta);
+
+    // Şifresiz image ise direkt önizleme göster
+    if (meta.mime_type && meta.mime_type.startsWith('image/') && !meta.is_encrypted) {
+      DOM.imagePreview.classList.remove('hidden');
+      DOM.previewImg.src = '/api/files/' + fileId + '/dl';
     }
+  }
+
+  // İndirme butonunu yapılandır
+  function setupDownloadButton(meta) {
+    // Önceki listener'ları temizle
+    const newBtn = DOM.downloadBtn.cloneNode(true);
+    DOM.downloadBtn.parentNode.replaceChild(newBtn, DOM.downloadBtn);
+    DOM.downloadBtn = newBtn;
+
+    newBtn.addEventListener('click', () => {
+      if (meta.is_encrypted) {
+        // Şifreli: gate açık değilse aç, açıksa ve çözüldüyse blob'u indir
+        if (decryptedBlobUrl) {
+          triggerBlobDownload(decryptedBlobUrl, meta.filename);
+        } else {
+          openPasswordGate();
+        }
+      } else {
+        // Şifresiz: doğrudan API indirme
+        window.location.href = '/api/files/' + fileId + '/dl';
+      }
+    });
   }
 
   function showExpired(filename) {
@@ -146,6 +192,144 @@
     DOM.errorState.classList.remove('hidden');
     DOM.errorTitle.textContent = title;
     DOM.errorMessage.textContent = message;
+  }
+
+  // =========================================================================
+  // Parola Gate (şifreli dosyalar)
+  // =========================================================================
+
+  function openPasswordGate() {
+    if (!fileMeta) return;
+    DOM.gateFilename.textContent = fileMeta.filename || 'Dosya';
+    DOM.gateError.classList.add('hidden');
+    DOM.gateProgress.classList.add('hidden');
+    DOM.gatePasswordInput.value = '';
+    DOM.gateSubmitBtn.disabled = false;
+    DOM.passwordGate.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => DOM.gatePasswordInput.focus(), 50);
+  }
+
+  function closePasswordGate() {
+    DOM.passwordGate.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  // Modal dışına tıklayınca kapat
+  DOM.passwordGate.addEventListener('click', (e) => {
+    if (e.target === DOM.passwordGate) closePasswordGate();
+  });
+
+  // Escape ile kapat
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !DOM.passwordGate.classList.contains('hidden')) {
+      closePasswordGate();
+    }
+  });
+
+  // Parola göster/gizle
+  DOM.gateToggleVisibility.addEventListener('click', () => {
+    const input = DOM.gatePasswordInput;
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+
+  // Enter ile submit
+  DOM.gatePasswordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') DOM.gateSubmitBtn.click();
+  });
+
+  // Submit
+  DOM.gateSubmitBtn.addEventListener('click', handlePasswordSubmit);
+
+  async function handlePasswordSubmit() {
+    if (!fileMeta || !fileMeta.is_encrypted) return;
+
+    const password = DOM.gatePasswordInput.value;
+    if (!password) {
+      showGateError('Lütfen parolayı girin.');
+      return;
+    }
+
+    if (!fileMeta.encryption_iv || !fileMeta.encryption_salt) {
+      showGateError('Şifreleme bilgileri eksik. Dosya hasarlı olabilir.');
+      return;
+    }
+
+    DOM.gateSubmitBtn.disabled = true;
+    DOM.gateError.classList.add('hidden');
+    DOM.gateProgress.classList.remove('hidden');
+    setGateProgress(10, 'Şifreli dosya indiriliyor...');
+
+    try {
+      // 1. Ciphertext'i indir
+      const dlResp = await fetch('/api/files/' + fileId + '/dl');
+      if (!dlResp.ok) {
+        throw new Error('Dosya indirilemedi. Süresi dolmuş olabilir (HTTP ' + dlResp.status + ').');
+      }
+      const ciphertext = await dlResp.arrayBuffer();
+      setGateProgress(50, 'Şifre çözülüyor...');
+
+      // 2. Deşifrele (FFCrypto — crypto.js)
+      const plaintext = await FFCrypto.decryptFile(
+        ciphertext,
+        fileMeta.encryption_iv,
+        fileMeta.encryption_salt,
+        password
+      );
+
+      setGateProgress(90, 'İçerik hazırlanıyor...');
+
+      // 3. Blob URL oluştur (preview + indirme için)
+      const blob = new Blob([plaintext], { type: fileMeta.mime_type || 'application/octet-stream' });
+      if (decryptedBlobUrl) URL.revokeObjectURL(decryptedBlobUrl);
+      decryptedBlobUrl = URL.createObjectURL(blob);
+
+      setGateProgress(100, 'Hazır!');
+      DOM.gateProgressText.textContent = 'Kilit açıldı. Dosyayı indirebilirsiniz.';
+
+      // 4. Image ise preview göster
+      if (fileMeta.mime_type && fileMeta.mime_type.startsWith('image/')) {
+        DOM.imagePreview.classList.remove('hidden');
+        DOM.previewImg.src = decryptedBlobUrl;
+      }
+
+      // 5. Gate'i kapat ve başarı bildir
+      setTimeout(() => {
+        closePasswordGate();
+        // İlk girişte (isDownload=true) otomatik indirme başlat
+        if (isDownload) {
+          triggerBlobDownload(decryptedBlobUrl, fileMeta.filename);
+        }
+      }, 600);
+
+    } catch (err) {
+      console.error('[file.js] decrypt error:', err);
+      showGateError(err.message || 'Şifre çözme başarısız. Parola yanlış olabilir.');
+      DOM.gateProgress.classList.add('hidden');
+      DOM.gateSubmitBtn.disabled = false;
+    }
+  }
+
+  function showGateError(message) {
+    DOM.gateError.textContent = message;
+    DOM.gateError.classList.remove('hidden');
+  }
+
+  function setGateProgress(percent, text) {
+    DOM.gateProgressFill.style.width = percent + '%';
+    DOM.gateProgressText.textContent = text;
+  }
+
+  // =========================================================================
+  // Blob indir
+  // =========================================================================
+  function triggerBlobDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'dosya';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   // =========================================================================
@@ -170,17 +354,16 @@
     }
   }
 
-  function getFileIcon(mimeType) {
-    if (!mimeType) return '📄';
-    if (mimeType.startsWith('image/')) return '🖼️';
-    if (mimeType.startsWith('video/')) return '🎬';
-    if (mimeType.startsWith('audio/')) return '🎵';
-    if (mimeType.includes('pdf')) return '📕';
-    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar') || mimeType.includes('gzip')) return '📦';
-    if (mimeType.startsWith('text/')) return '📝';
-    if (mimeType.includes('word') || mimeType.includes('document')) return '📄';
-    if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
-    if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📽️';
-    return '📄';
+  // CSP-safe SVG ikonlar (inline emoji yerine — emoji'ler kaldırıldı)
+  function getFileIconSvg(mimeType) {
+    const svg = (p) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="40" height="40">${p}</svg>`;
+    if (!mimeType) return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>');
+    if (mimeType.startsWith('image/')) return svg('<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>');
+    if (mimeType.startsWith('video/')) return svg('<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>');
+    if (mimeType.startsWith('audio/')) return svg('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>');
+    if (mimeType.includes('pdf')) return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>');
+    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar') || mimeType.includes('gzip')) return svg('<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>');
+    if (mimeType.startsWith('text/')) return svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>');
+    return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>');
   }
 })();

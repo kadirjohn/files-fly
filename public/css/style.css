@@ -417,6 +417,21 @@ h3 { font-size: 1.25rem; }
     border-color: var(--color-border-active);
 }
 
+/* Yeşil indirme butonu */
+.btn-success {
+    background: var(--color-success);
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+.btn-success:hover:not(:disabled) {
+    background: #059669;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.btn-success:active:not(:disabled) {
+    transform: translateY(0);
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--color-text-muted);
@@ -1183,6 +1198,40 @@ h3 { font-size: 1.25rem; }
 .hidden { display: none !important; }
 
 /* -------------------------------------------------------------------------
+   CSP-safe SVG Icon Helpers (replaces inline style= attributes)
+   ------------------------------------------------------------------------- */
+.icon-inline {
+    margin-right: 4px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.icon-inline-shrink {
+    flex-shrink: 0;
+}
+.icon-success {
+    color: var(--color-success);
+}
+.icon-error {
+    color: var(--color-error);
+}
+.icon-info {
+    color: var(--color-upload);
+}
+.icon-warning {
+    color: #f59e0b;
+}
+.icon-muted {
+    color: var(--color-text-muted);
+}
+.icon-primary {
+    color: var(--color-primary);
+}
+.icon-va-mid {
+    vertical-align: middle;
+    margin-right: 3px;
+}
+
+/* -------------------------------------------------------------------------
    Nav Link with SVG Icon
    ------------------------------------------------------------------------- */
 .nav-link-files {
@@ -1338,6 +1387,24 @@ h3 { font-size: 1.25rem; }
 }
 
 /* -------------------------------------------------------------------------
+   Clickable Table Row
+   ------------------------------------------------------------------------- */
+.row-clickable {
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+.row-clickable:hover {
+    background: rgba(var(--color-primary-rgb), 0.05);
+}
+
+/* -------------------------------------------------------------------------
+   Copy Button Copied State
+   ------------------------------------------------------------------------- */
+.btn-copied {
+    color: var(--color-success) !important;
+}
+
+/* -------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
 @media (max-width: 640px) {
@@ -1489,5 +1556,91 @@ h3 { font-size: 1.25rem; }
     }
     .info-grid {
         grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* =========================================================================
+   Parola Gate Modal (şifreli dosyalar — file.html & admin.html)
+   .preview-panel overlay'i yeniden kullanır; içeriği password-gate-box.
+   ========================================================================= */
+
+.password-gate-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    padding: 1.75rem 1.5rem;
+    box-sizing: border-box;
+}
+
+.password-gate-icon-wrap {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+}
+
+.password-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.password-input-row .form-input {
+    flex: 1;
+}
+
+/* Dosya önizleme sayfasında "Parola korumalı" rozeti */
+.encrypted-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin: 0 auto 1rem;
+}
+
+/* Admin dosya listesinde şifreli dosya kilit rozeti */
+.encrypted-lock-badge {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    color: #fbbf24;
+    margin-left: 0.25rem;
+}
+
+.encrypted-lock-badge svg {
+    vertical-align: middle;
+}
+
+/* Parola gate içindeki progress bar — app.js'deki .progress-bar ile uyumlu */
+.password-gate-box .progress-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.password-gate-box .progress-fill {
+    height: 100%;
+    background: var(--color-primary, #6366f1);
+    transition: width 0.3s ease;
+}
+
+@media (max-width: 480px) {
+    .password-gate-box {
+        padding: 1.25rem 1rem;
     }
 }
