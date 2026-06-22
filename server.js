@@ -362,6 +362,8 @@ function parseURL(rawUrl) {
 // =========================================================================
 
 const server = http.createServer(async (req, res) => {
+  const startTime = Date.now();
+
   // Handle Expect: 100-continue (Node.js doesn't do this automatically)
   if (req.headers.expect === '100-continue') {
     res.writeContinue();
@@ -377,6 +379,21 @@ const server = http.createServer(async (req, res) => {
   req.query = query;
   req.pathname = urlPath;
 
+  // Request log: response bitince logla (status kodu için)
+  res.on('finish', () => {
+    const ms = Date.now() - startTime;
+    const status = res.statusCode;
+    const isApi = urlPath.startsWith('/api/');
+    const isError = status >= 400;
+
+    // Production: sadece API isteklerini ve hataları logla
+    // Development: her şeyi logla
+    if (NODE_ENV === 'development' || isApi || isError) {
+      const statusIcon = status >= 500 ? '💥' : status >= 400 ? '⚠️' : status >= 300 ? '↩️' : '✅';
+      console.log(`${statusIcon} ${req.method} ${urlPath} → ${status} (${ms}ms)`);
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Middleware Zinciri: Rate Limiter → Session → Router
   // -----------------------------------------------------------------------
@@ -386,7 +403,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath.startsWith('/api/')) {
     try {
       const rateLimited = await rateLimitMiddleware(req, res);
-      if (!rateLimited) return; // 403 veya 429 gönderildi
+      if (!rateLimited) return;
     } catch (err) {
       console.error('[Server] Rate limiter error:', err.message);
       // Rate limiter hatasında fail-open (erişime izin ver)

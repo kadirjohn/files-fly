@@ -1,9 +1,9 @@
 /**
  * session.js — Files Fly Dosyalarım Sayfası JavaScript
- * 
+ *
  * Kullanıcının kendi yüklediği dosyaları listeler.
  * Session cookie ile otomatik tanımlama.
- * Sayfalama, link kopyalama, indirme, süre sayacı.
+ * Sayfalama, link kopyalama, indirme, süre sayacı, önizleme.
  */
 
 // =========================================================================
@@ -21,6 +21,14 @@ const DOM = {
   prevPageBtn: document.getElementById('prev-page-btn'),
   nextPageBtn: document.getElementById('next-page-btn'),
   pageInfo: document.getElementById('page-info'),
+
+  // Preview
+  previewPanel: document.getElementById('preview-panel'),
+  previewTitle: document.getElementById('preview-title'),
+  previewContent: document.getElementById('preview-content'),
+  previewCloseBtn: document.getElementById('preview-close-btn'),
+  previewCloseBtn2: document.getElementById('preview-close-btn2'),
+  previewDownloadBtn: document.getElementById('preview-download-btn'),
 };
 
 // =========================================================================
@@ -36,14 +44,12 @@ let countdownIntervals = [];
 // =========================================================================
 
 async function loadFiles(page = 1) {
-  // Loading state
   DOM.loadingState.classList.remove('hidden');
   DOM.emptyState.classList.add('hidden');
   DOM.errorState.classList.add('hidden');
   DOM.fileList.innerHTML = '';
   DOM.pagination.classList.add('hidden');
 
-  // Eski countdown interval'ları temizle
   countdownIntervals.forEach(clearInterval);
   countdownIntervals = [];
 
@@ -52,9 +58,8 @@ async function loadFiles(page = 1) {
 
     if (!resp.ok) {
       if (resp.status === 401) {
-        // Session yok → oluştur
         await fetch('/api/session', { method: 'POST' });
-        return loadFiles(page); // Tekrar dene
+        return loadFiles(page);
       }
       throw new Error(`HTTP ${resp.status}`);
     }
@@ -70,10 +75,8 @@ async function loadFiles(page = 1) {
       return;
     }
 
-    // Dosyaları render et
     renderFiles(data.files);
 
-    // Sayfalama
     if (totalPages > 1) {
       DOM.pagination.classList.remove('hidden');
       DOM.pageInfo.textContent = `Sayfa ${currentPage} / ${totalPages}`;
@@ -81,7 +84,7 @@ async function loadFiles(page = 1) {
       DOM.nextPageBtn.disabled = currentPage >= totalPages;
     }
   } catch (err) {
-    console.error('[Session] Error loading files:', err);
+    console.error('[Session] Dosyalar yüklenirken hata:', err);
     DOM.loadingState.classList.add('hidden');
     DOM.errorState.classList.remove('hidden');
     DOM.errorText.textContent = 'Dosyalar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.';
@@ -103,9 +106,26 @@ function renderFiles(files) {
     const icon = getFileIcon(file.mime_type, file.filename);
     const size = formatSize(file.file_size);
     const timeLeft = expired ? 'Süresi doldu (silindi)' : getTimeLeft(file.expire_at);
+    const isImage = file.mime_type && file.mime_type.startsWith('image/');
+    const isPreviewable = !expired && (
+      isImage ||
+      (file.mime_type && (
+        file.mime_type.startsWith('video/') ||
+        file.mime_type.startsWith('audio/') ||
+        file.mime_type.startsWith('text/') ||
+        file.mime_type === 'application/pdf' ||
+        file.mime_type === 'application/json' ||
+        file.mime_type === 'application/javascript'
+      ))
+    );
+
+    // Thumbnail: image dosyaları için küçük resim (public dl endpoint)
+    const thumbHtml = isImage && !expired
+      ? `<img src="/api/files/${file.id}/dl" alt="" loading="lazy" class="file-item-thumb" onerror="this.outerHTML='<span class=\\'file-item-icon\\'>${icon}</span>'">`
+      : `<span class="file-item-icon">${icon}</span>`;
 
     item.innerHTML = `
-      <div class="file-item-icon">${icon}</div>
+      ${thumbHtml}
       <div class="file-item-info">
         <div class="file-item-name">${escapeHtml(file.filename)}</div>
         <div class="file-item-meta">
@@ -115,8 +135,9 @@ function renderFiles(files) {
       </div>
       <div class="file-item-actions">
         ${!expired ? `
-          <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(file.direct_url)}">🔗 Linki Kopyala</button>
-          <a href="${escapeHtml(file.direct_url)}" class="btn btn-primary btn-sm">📥 İndir</a>
+          ${isPreviewable ? `<button class="btn btn-ghost btn-sm preview-btn" data-id="${file.id}" data-name="${escapeHtml(file.filename)}" data-mime="${escapeHtml(file.mime_type)}">👁️ Önizle</button>` : ''}
+          <button class="btn btn-ghost btn-sm copy-link-btn" data-url="${escapeHtml(file.direct_url)}">🔗 Kopyala</button>
+          <a href="${escapeHtml(file.direct_url)}" class="btn btn-primary btn-sm" download="${escapeHtml(file.filename)}">📥 İndir</a>
         ` : `
           <span class="text-muted text-xs">🗑️ Silindi</span>
         `}
@@ -125,21 +146,137 @@ function renderFiles(files) {
 
     DOM.fileList.appendChild(item);
 
-    // Süresi dolmamış dosyalar için countdown başlat
     if (!expired) {
       startCountdown(item, file.expire_at);
     }
   }
 
-  // Link kopyalama butonları
+  // Link kopyalama
   document.querySelectorAll('.copy-link-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       copyToClipboard(btn.dataset.url);
       btn.textContent = '✅ Kopyalandı!';
-      setTimeout(() => { btn.textContent = '🔗 Linki Kopyala'; }, 2000);
+      setTimeout(() => { btn.textContent = '🔗 Kopyala'; }, 2000);
+    });
+  });
+
+  // Preview butonları
+  document.querySelectorAll('.preview-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openPreview(btn.dataset.id, btn.dataset.name, btn.dataset.mime);
     });
   });
 }
+
+// =========================================================================
+// Önizleme
+// =========================================================================
+
+async function openPreview(fileId, filename, mimeType) {
+  DOM.previewTitle.textContent = `👁️ Dosya Önizleme: ${filename}`;
+  DOM.previewContent.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
+  DOM.previewPanel.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  DOM.previewDownloadBtn.href = `/api/files/${fileId}/dl`;
+  DOM.previewDownloadBtn.setAttribute('download', filename);
+
+  try {
+    const mime = mimeType || '';
+
+    // Resim
+    if (mime.startsWith('image/')) {
+      DOM.previewContent.innerHTML = `
+        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="Tam çözünürlük aç">
+          <img src="/api/files/${fileId}/dl" alt="${escapeHtml(filename)}"
+            onerror="this.parentElement.outerHTML='<p class=\\'text-muted\\'>Resim yüklenemedi.</p>'"
+          >
+        </a>
+        <p class="text-muted text-xs mt-1">📋 Tam çözünürlük için resme tıkla</p>
+      `;
+      return;
+    }
+
+    // Video
+    if (mime.startsWith('video/')) {
+      DOM.previewContent.innerHTML = `
+        <video controls>
+          <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
+          Tarayıcınız video oynatmayı desteklemiyor.
+        </video>
+      `;
+      return;
+    }
+
+    // Ses
+    if (mime.startsWith('audio/')) {
+      DOM.previewContent.innerHTML = `
+        <div style="padding: 2rem 0;">
+          <p class="text-muted text-sm mb-2">🎵 ${escapeHtml(filename)}</p>
+          <audio controls style="width:100%">
+            <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
+            Tarayıcınız ses oynatmayı desteklemiyor.
+          </audio>
+        </div>
+      `;
+      return;
+    }
+
+    // PDF
+    if (mime === 'application/pdf') {
+      DOM.previewContent.innerHTML = `
+        <iframe src="/api/files/${fileId}/dl" style="width:100%;height:55vh;border:none;border-radius:8px;"></iframe>
+      `;
+      return;
+    }
+
+    // Text / JSON / JS — fetch ile içeriği al
+    if (
+      mime.startsWith('text/') ||
+      mime === 'application/json' ||
+      mime === 'application/javascript'
+    ) {
+      try {
+        const resp = await fetch(`/api/files/${fileId}/dl`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        const preview = text.length > 100 * 1024
+          ? text.substring(0, 100 * 1024) + '\n\n... (dosya çok büyük, ilk 100KB gösteriliyor)'
+          : text;
+        DOM.previewContent.innerHTML = `<pre>${escapeHtml(preview)}</pre>`;
+      } catch (err) {
+        DOM.previewContent.innerHTML = `<p class="text-error">İçerik yüklenemedi: ${escapeHtml(err.message)}</p>`;
+      }
+      return;
+    }
+
+    // Desteklenmeyen
+    DOM.previewContent.innerHTML = `<p class="text-muted">Bu dosya türü (${escapeHtml(mime)}) için önizleme desteklenmiyor.</p>`;
+
+  } catch (err) {
+    console.error('[Session] Önizleme yüklenemedi:', err);
+    DOM.previewContent.innerHTML = '<p class="text-error">Önizleme yüklenemedi.</p>';
+  }
+}
+
+function closePreview() {
+  DOM.previewPanel.classList.add('hidden');
+  document.body.style.overflow = '';
+  // Video/audio durdur
+  const media = DOM.previewContent.querySelector('video, audio');
+  if (media) media.pause();
+}
+
+// Modal kapatma — ✕ butonu, ikinci kapat butonu, overlay dışı, Escape
+DOM.previewCloseBtn.addEventListener('click', closePreview);
+DOM.previewCloseBtn2.addEventListener('click', closePreview);
+DOM.previewPanel.addEventListener('click', (e) => {
+  if (e.target === DOM.previewPanel) closePreview();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !DOM.previewPanel.classList.contains('hidden')) {
+    closePreview();
+  }
+});
 
 // =========================================================================
 // Countdown Timer
@@ -153,21 +290,18 @@ function startCountdown(itemElement, expireAt) {
     const timeLeft = getTimeLeft(expireAt);
     countdownEl.textContent = timeLeft;
 
-    // Süre doldu mu?
     if (new Date(expireAt) < new Date()) {
       countdownEl.textContent = 'Süresi doldu (silindi)';
       itemElement.classList.add('expired');
-      // Butonları güncelle
       const actions = itemElement.querySelector('.file-item-actions');
       if (actions) {
         actions.innerHTML = '<span class="text-muted text-xs">🗑️ Silindi</span>';
       }
-      return; // Interval durur
     }
   };
 
   update();
-  const interval = setInterval(update, 30000); // 30 saniyede bir güncelle
+  const interval = setInterval(update, 30000);
   countdownIntervals.push(interval);
 }
 
@@ -235,7 +369,7 @@ function formatSize(bytes) {
 
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str || '';
   return div.innerHTML;
 }
 
