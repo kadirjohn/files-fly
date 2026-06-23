@@ -18,24 +18,42 @@ const { query } = require('../services/database');
 const THUMB_MAX_SRC_BYTES = 50 * 1024 * 1024; // 50MB
 
 // =========================================================================
-// GET /files/:id — Dosya Önizleme Sayfası (HTML)
+// GET /files/:id — Eski link → Bundle'a 301 redirect (geri uyumluluk)
 // =========================================================================
-// /api/files/:id JSON metadata döndürürken, /files/:id kullanıcıya yönelik
-// önizleme sayfası (file.html) sunar. file.js client-side metadata çekip render eder.
+// Tüm dosyalar artık bir bundle'a ait (migration 004 backfill + auto-bundle-on-upload).
+// Eski /files/:id linkleri (paylaşılmış, bookmark'lanmış) → bundle receiver sayfasına
+// /b/:bundleId'ye 301 (kalıcı) redirect. 301 = arama motorları + cache'ler yeni yeri
+// öğrensin. bundle_id NULL ise (gerçekleşmemeli ama savunma olarak) eski file.html'e düş.
 
 addRoute('GET', '/files/:id', async (req, res, params, body) => {
-  // file.html statik sayfasını sun (client-side fileId'yi URL'den çıkarıp metadata çeker)
+  const fileId = params.id;
+  if (!fileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileId)) {
+    return sendError(res, 400, 'Invalid file ID format');
+  }
+
+  try {
+    const r = await query(`SELECT bundle_id FROM files WHERE id = $1`, [fileId]);
+    if (r.rows.length > 0 && r.rows[0].bundle_id) {
+      res.writeHead(301, { Location: `/b/${r.rows[0].bundle_id}` });
+      res.end();
+      return;
+    }
+  } catch (err) {
+    // Sorgu hatası → statik sayfaya düş (en iyi çaba)
+  }
+
+  // Savunma fallback'i (bundle_id NULL — backfill sonrası gerçekleşmemeli):
+  // eski tek dosya önizleme sayfasını sun.
   const served = serveStaticFile('/file.html', res);
   if (!served) {
-    // file.html bulunamazsa (kurulum hatası) 404 gönder
     sendError(res, 404, 'Preview page not available');
   }
 });
 
 // /files/:id/dl → kullanıcı dostu kısa link.
 // Şifreli dosyalar için ham /api/files/:id/dl binary döndürür (kullanıcıya anlamsız
-// ciphertext gösterir). Bu yüzden şifreli dosyalarda önizleme sayfasına (parola gate)
-// yönlendir; şifresiz dosyalarda doğrudan indirmeye yönlendir.
+// ciphertext gösterir). Bu yüzden şifreli dosyalarda bundle receiver sayfasındaki
+// parola gate'e (/b/:bundleId) yönlendir; şifresiz dosyalarda doğrudan indirmeye.
 addRoute('GET', '/files/:id/dl', async (req, res, params, body) => {
   const fileId = params.id;
   if (!fileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileId)) {
@@ -45,8 +63,11 @@ addRoute('GET', '/files/:id/dl', async (req, res, params, body) => {
   try {
     const metadata = await getFileMetadata(fileId);
     if (metadata && !metadata.expired && metadata.is_encrypted) {
-      // Şifreli → önizleme sayfasındaki parola gate'e yönlendir
-      res.writeHead(302, { Location: `/files/${fileId}` });
+      // Şifreli → receiver sayfasındaki parola gate'e yönlendir (bundle üzerinden).
+      // /files/:id artık /b/:bundleId'ye redirectlediği için doğrudan bundle'a git.
+      const r = await query(`SELECT bundle_id FROM files WHERE id = $1`, [fileId]);
+      const bid = r.rows[0] && r.rows[0].bundle_id;
+      res.writeHead(302, { Location: bid ? `/b/${bid}` : `/files/${fileId}` });
       res.end();
       return;
     }
