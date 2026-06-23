@@ -505,6 +505,7 @@ async function start() {
     require('./routes/session');
     require('./routes/upload');
     require('./routes/files');
+    require('./routes/bundles');
     require('./routes/admin');
     console.log('[Server] Routes loaded.');
   } catch (err) {
