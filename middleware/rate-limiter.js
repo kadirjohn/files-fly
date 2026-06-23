@@ -112,6 +112,12 @@ function resolveBucket(method, path) {
     return 'download';
   }
 
+  // Bundle zip download — POST ama ağır indirme; generic read limit'i değil,
+  // download bucket'ı (per-file /dl ile aynı sınır) ile yönetilsin.
+  if (method === 'POST' && /\/api\/bundles\/[^/]+\/download$/.test(path)) {
+    return 'download';
+  }
+
   // Diğer tüm /api/ route'ları (session, metadata, chunk status, files metadata)
   return 'read';
 }

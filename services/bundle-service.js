@@ -58,7 +58,8 @@ async function getBundle(bundleId) {
 
   const fRes = await query(
     `SELECT id, filename, file_size, mime_type, is_encrypted,
-            encryption_iv, encryption_salt, created_at, download_count
+            encryption_iv, encryption_salt, created_at, download_count,
+            storage_backend, storage_key
        FROM files WHERE bundle_id = $1 ORDER BY created_at ASC`,
     [bundleId]
   );

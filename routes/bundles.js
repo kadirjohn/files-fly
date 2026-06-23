@@ -10,11 +10,14 @@
  *   GET    /api/bundles/:id         → bundle metadata + dosya listesi (404/410)
  *   DELETE /api/bundles/:id         → bundle sil (sadece sahip, cascade files)
  *   GET    /api/session/bundles     → "Dosyalarım" — session'ın bundle'ları (sayfalı)
- *   POST   /api/bundles/:id/download → zip stream (Task 7'de uygulanır; şimdilik 501 stub)
+ *   POST   /api/bundles/:id/download → bundle dosyalarını zip stream (şifresiz bundle'lar)
  */
 
+const { pipeline } = require('node:stream');
 const { addRoute, sendJSON, sendError, serveStaticFile } = require('../server');
 const { getConfig } = require('../services/config-service');
+const { createZipStream } = require('../services/zip-writer');
+const storage = require('../services/storage');
 const {
   createBundle, getBundle, getMyBundles, deleteBundle, selectDecryptSalt,
 } = require('../services/bundle-service');
@@ -153,13 +156,85 @@ addRoute('GET', '/api/session/bundles', async (req, res) => {
 });
 
 // =========================================================================
-// POST /api/bundles/:id/download — Zip Stream (Task 7'de uygulanır)
+// POST /api/bundles/:id/download — Bundle Dosyalarını Zip Stream
 // =========================================================================
-// Route burada stub olarak kayıtlı (route var olsun diye); Task 7 handler body'yi
-// gerçek zip-stream implementasyonuyla değiştirir.
+// Tüm dosyaları (veya file_ids ile alt kümesini) tek bir .zip olarak stream eder.
+// STORE method (sıkıştırma yok) — media zaten sıkıştırılmış, CPU boşa harcanmaz.
+//
+// Kısıtlar:
+//   - Şifreli bundle (is_encrypted) → 400. Zip server-side birleşik ciphertext
+//     üretir; client tek tek dosyaları decrypt edip indirmeli (receiver page).
+//   - Boş seçim (file_ids verilip hiçbiri eşleşmezse) → 400.
+//
+// Akış: her dosyayı KENDİ backend'inden stream → createZipStream(entries) → res.
+// pipeline backpressure + cleanup yönetir; ERR_STREAM_PREMATURE_CLOSE (client erken
+// kapattı) sessizce yutulur, diğer hatalar loglanır + res destroy edilir.
+//
+// Rate-limit: middleware/rate-limiter.js bu POST'u 'download' bucket'ına yönlendirir
+// (ağır indirme, generic read limit'i değil).
 
 addRoute('POST', '/api/bundles/:id/download', async (req, res, params, body) => {
-  sendError(res, 501, 'Zip download not yet implemented');
+  if (!UUID_RE.test(params.id)) return sendError(res, 400, 'Invalid bundle ID');
+
+  let payload = {};
+  try { payload = typeof body === 'string' ? JSON.parse(body) : (body || {}); }
+  catch { /* boş/invalid body = tüm dosyalar */ }
+
+  const bundle = await getBundle(params.id);
+  if (!bundle) return sendError(res, 404, 'Bundle not found');
+  if (bundle.expired) return sendError(res, 410, 'Bundle has expired');
+  if (bundle.is_encrypted) {
+    return sendError(res, 400, 'Zip download is not available for password-protected bundles. Download files individually.');
+  }
+
+  // file_ids verilmişse alt küme, yoksa tüm dosyalar.
+  const want = Array.isArray(payload.file_ids) ? new Set(payload.file_ids) : null;
+  const files = bundle.files.filter(f => !want || want.has(f.id));
+  if (files.length === 0) return sendError(res, 400, 'No files selected');
+
+  // Her dosyayı kendi backend'inden stream → zip entry. Dosya adı zip içinde
+  // benzersiz olmalı (aynı isimde iki dosya → bazı extract'ler çakışır).
+  const usedNames = new Set();
+  const entries = [];
+  for (const f of files) {
+    if (!f.id || !f.storage_key) continue;
+    try {
+      const provider = await storage.getProviderForFile(f);
+      const { stream } = await provider.getObjectStream(f.storage_key);
+      // Dosya adını zip içinde benzersiz yap (duplicate → "name (2).ext").
+      let name = f.filename || (f.id + '.bin');
+      if (usedNames.has(name)) {
+        const dot = name.lastIndexOf('.');
+        const base = dot > 0 ? name.slice(0, dot) : name;
+        const ext = dot > 0 ? name.slice(dot) : '';
+        let n = 2;
+        while (usedNames.has(`${base} (${n})${ext}`)) n++;
+        name = `${base} (${n})${ext}`;
+      }
+      usedNames.add(name);
+      entries.push({ filename: name, stream });
+    } catch (err) {
+      console.error(`[Bundles] zip entry skipped (${f.id}):`, err.message);
+    }
+  }
+
+  if (entries.length === 0) {
+    return sendError(res, 500, 'No files could be read from storage');
+  }
+
+  const zip = createZipStream(entries);
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="bundle-${params.id.slice(0, 8)}.zip"`,
+    'Cache-Control': 'no-store',
+  });
+
+  pipeline(zip, res, (err) => {
+    if (err && err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+      console.error('[Bundles] zip stream error:', err.message);
+      try { res.destroy(); } catch { /* already closed */ }
+    }
+  });
 });
 
 module.exports = {};
