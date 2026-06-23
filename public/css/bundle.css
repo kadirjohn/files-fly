@@ -1,0 +1,330 @@
+/* =========================================================================
+   Bundle Receiver Page (/b/:bundleId)
+   file-page.css ile paylaşılan: .password-gate-box, .encrypted-badge, .spinner.
+   Bu dosya: preview-panel modalı, bundle header/list/actions, tek-dosya modu.
+   ========================================================================= */
+
+/* Genişletilmiş container — dosya listesi yatay nefes alsın */
+.bundle-page.container {
+    max-width: 920px;
+    padding-top: 1.5rem;
+}
+
+/* -------------------------------------------------------------------------
+   Bundle Header (başlık + meta + şifreli rozet + sayaç)
+   ------------------------------------------------------------------------- */
+.bundle-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.bundle-header h1 {
+    font-size: 1.75rem;
+    word-break: break-word;
+    margin: 0;
+}
+
+.bundle-header .encrypted-badge {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+#bundle-meta {
+    margin-bottom: 0.25rem;
+}
+
+#countdown {
+    margin-bottom: 1.25rem;
+}
+
+/* -------------------------------------------------------------------------
+   Bundle Actions (tümünü seç + seçilenleri/hepsini indir)
+   ------------------------------------------------------------------------- */
+.bundle-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding-bottom: 1rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.select-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    user-select: none;
+    margin-right: auto;
+}
+
+.select-all input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+/* -------------------------------------------------------------------------
+   Bundle File List (alıcı — checkbox + ikon + ad + boyut + önizle/indir)
+   ------------------------------------------------------------------------- */
+.bundle-file-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.bundle-file-row {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.7rem 0.25rem;
+    border-bottom: 1px solid var(--color-border);
+    transition: background var(--transition-fast);
+}
+
+.bundle-file-row:hover {
+    background: var(--color-surface-hover);
+}
+
+.bundle-file-row:last-child {
+    border-bottom: none;
+}
+
+.bundle-file-row .file-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: 4px;
+}
+
+.bundle-file-row .file-icon {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bundle-file-row .file-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bundle-file-row .file-size {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.bundle-file-row .file-preview,
+.bundle-file-row .file-download {
+    flex-shrink: 0;
+}
+
+/* Tek dosyalık bundle → checkbox + önizle butonu gizli, büyük detay görünümü */
+.bundle-file-list.single .bundle-file-row .file-check,
+.bundle-file-list.single .bundle-file-row .file-preview {
+    display: none;
+}
+
+.bundle-file-list.single .bundle-file-row {
+    padding: 1rem 0.25rem;
+}
+
+.bundle-file-list.single .bundle-file-row .file-name {
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+   Password Gate (şifreli bundle — file-page.css .password-gate-box'u kullanır)
+   #password-gate glass-card olarak render edilir; içeriği ortalanır.
+   ------------------------------------------------------------------------- */
+#password-gate.glass-card {
+    max-width: 460px;
+    margin: 2rem auto;
+    text-align: center;
+}
+
+#password-gate .password-gate-icon-wrap {
+    margin-bottom: 0.75rem;
+}
+
+#password-gate .form-group {
+    margin-bottom: 0.75rem;
+}
+
+#password-gate .btn-full {
+    width: 100%;
+}
+
+/* -------------------------------------------------------------------------
+   Preview Modal (alıcı — admin.css'teki .preview-panel'i bağımsız tanımlar,
+   çünkü bundle.html admin.css yüklemez)
+   ------------------------------------------------------------------------- */
+.preview-panel {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 1.5rem;
+}
+
+.preview-panel.hidden {
+    display: none;
+}
+
+.preview-modal-box {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 860px;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+}
+
+.preview-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.preview-modal-header h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.preview-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.25rem 0.4rem;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.preview-close-btn:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+
+#preview-content {
+    padding: 1.25rem;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Önizleme içeriği — görsel/video ortalanır, metin kaydırılır */
+#preview-content img,
+#preview-content video,
+#preview-content audio,
+#preview-content iframe {
+    max-width: 100%;
+    max-height: 64vh;
+    border-radius: var(--radius-md);
+    display: block;
+    margin: 0 auto;
+}
+
+#preview-content video {
+    width: 100%;
+}
+
+#preview-content iframe {
+    width: 100%;
+    height: 64vh;
+    border: none;
+}
+
+#preview-content pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    overflow: auto;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 64vh;
+}
+
+/* -------------------------------------------------------------------------
+   Responsive — dar ekran: dosya satırı kaydırılabilir, butonlar sığar
+   ------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+    .bundle-page.container {
+        max-width: 100%;
+        padding: 1rem;
+    }
+
+    .bundle-header h1 {
+        font-size: 1.375rem;
+    }
+
+    .bundle-file-row {
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .bundle-file-row .file-name {
+        white-space: normal;
+        flex-basis: 100%;
+        order: 3;
+    }
+
+    .bundle-actions {
+        gap: 0.5rem;
+    }
+
+    .select-all {
+        flex-basis: 100%;
+        margin-right: 0;
+        margin-bottom: 0.25rem;
+    }
+
+    .preview-modal-box {
+        max-height: 92vh;
+        border-radius: var(--radius-md);
+    }
+
+    #preview-content {
+        padding: 0.85rem;
+    }
+}
