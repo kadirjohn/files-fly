@@ -1041,8 +1041,13 @@ function resetToSelect() {
   const warn = document.getElementById('preview-warning');
   if (warn) warn.remove();
   DOM.passwordToggle.checked = false;
-  DOM.passwordField.classList.add('hidden');
-  DOM.passwordInput.value = '';
+  // Parola alanı opsiyonel — bazı sayfalarda #password-field yok (always-visible input).
+  if (DOM.passwordField) DOM.passwordField.classList.add('hidden');
+  if (DOM.passwordInput) {
+    DOM.passwordInput.value = '';
+    // always-visible input: readonly'a geri dön (kilitli durum)
+    DOM.passwordInput.readOnly = true;
+  }
   // Clear intervals
   if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
   if (downloadPollInterval) { clearInterval(downloadPollInterval); downloadPollInterval = null; }
