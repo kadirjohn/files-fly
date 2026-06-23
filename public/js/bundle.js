@@ -94,8 +94,8 @@
   function showFiles() {
     dom.gate.classList.add('hidden');
     dom.info.classList.remove('hidden');
-    dom.title.textContent = bundle.title || (bundle.file_count + ' dosya');
-    dom.meta.textContent = bundle.file_count + ' dosya · ' + formatSize(bundle.total_size);
+    dom.title.textContent = bundle.title || (bundle.file_count + ' ' + t('bundleFiles'));
+    dom.meta.textContent = bundle.file_count + ' ' + t('bundleFiles') + ' · ' + formatSize(bundle.total_size);
     if (bundle.is_encrypted) dom.encBadge.classList.remove('hidden');
     startCountdown();
 
@@ -290,9 +290,9 @@
       }
       const mins = Math.floor(left / 60000);
       const hrs = Math.floor(mins / 60);
-      const hrLabel = currentLang === 'en' ? 'h' : 'sa';
-      const minLabel = currentLang === 'en' ? 'm' : 'dk';
-      const leftLabel = currentLang === 'en' ? 'left' : 'kaldı';
+      const hrLabel = t('bundleHourShort');
+      const minLabel = t('bundleMinShort');
+      const leftLabel = t('bundleTimeLeft');
       dom.countdown.textContent = hrs > 0
         ? hrs + ' ' + hrLabel + ' ' + (mins % 60) + ' ' + minLabel + ' ' + leftLabel
         : mins + ' ' + minLabel + ' ' + leftLabel;

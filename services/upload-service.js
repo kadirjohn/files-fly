@@ -319,9 +319,13 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
     throw new Error(`File size exceeds maximum allowed size of ${sizeCheck.maxSizeMB} MB`);
   }
 
-  // MIME type kontrolü (şifreli dosyalar için application/octet-stream olarak gelir,
-  // orijinal MIME type'ı fields'dan al)
-  const declaredMimeType = fields.mime_type || file.contentType;
+  // MIME type çözümleme:
+  //   1. fields.mime_type (şifreli yol — app.js orijinal türü gönderir) → doğrudan kullan.
+  //   2. file.contentType (tarayıcı multipart header'ı) → ancak anlamlıysa (octet-stream değilse).
+  //      octet-stream "bilinmiyor" anlamına gelir; uzantıdan çıkarsamaya düş.
+  //   3. getMimeType(filename) — uzantı eşlemesi son çare.
+  const declaredMimeType = fields.mime_type
+    || (file.contentType && file.contentType !== 'application/octet-stream' ? file.contentType : null);
   const mimeType = declaredMimeType || getMimeType(file.filename);
   const mimeAllowed = await isMimeTypeAllowed(mimeType);
   if (!mimeAllowed) {
