@@ -161,24 +161,13 @@
     // İndirme butonu handler'ı
     setupDownloadButton(meta);
 
-    // Şifresiz image ise önizleme göster (compressed thumbnail — full res /dl'de)
-    if (meta.mime_type && meta.mime_type.startsWith('image/') && !meta.is_encrypted) {
+    // Önizleme: tüm türler ortak FFPreview modülüyle (video/audio/pdf/text fix).
+    // Şifresiz → FFPreview /api/files/:id/thumb + /dl stream'ini kendisi yönetir.
+    if (!meta.is_encrypted) {
+      FFPreview.render(DOM.imagePreview, {
+        fileId, filename: meta.filename, mimeType: meta.mime_type, isEncrypted: false,
+      });
       DOM.imagePreview.classList.remove('hidden');
-      DOM.previewImg.src = '/api/files/' + fileId + '/thumb';
-      // Tam çözünürlük için resme tıkla → yeni sekmede full /dl
-      DOM.previewImg.style.cursor = 'zoom-in';
-      DOM.previewImg.onclick = () => {
-        window.open('/api/files/' + fileId + '/dl', '_blank', 'noopener');
-      };
-      // Thumbnail yüklenemezse full /dl'ye düş
-      DOM.previewImg.onerror = () => {
-        const fullUrl = '/api/files/' + fileId + '/dl';
-        if (DOM.previewImg.getAttribute('src') !== fullUrl) {
-          DOM.previewImg.src = fullUrl;
-        } else {
-          DOM.imagePreview.classList.add('hidden');
-        }
-      };
     }
   }
 
@@ -314,11 +303,13 @@
       setGateProgress(100, 'Hazır!');
       DOM.gateProgressText.textContent = 'Kilit açıldı. Dosyayı indirebilirsiniz.';
 
-      // 4. Image ise preview göster
-      if (fileMeta.mime_type && fileMeta.mime_type.startsWith('image/')) {
-        DOM.imagePreview.classList.remove('hidden');
-        DOM.previewImg.src = decryptedBlobUrl;
-      }
+      // 4. Önizleme: çözülmüş blob URL'iyle FFPreview tüm türleri render eder
+      //    (video/audio/pdf/text — şifreli MP4'ler artık preview'siz kalmaz).
+      FFPreview.render(DOM.imagePreview, {
+        fileId, filename: fileMeta.filename, mimeType: fileMeta.mime_type,
+        isEncrypted: true, decryptedBlobUrl,
+      });
+      DOM.imagePreview.classList.remove('hidden');
 
       // 5. Gate'i kapat ve başarı bildir
       setTimeout(() => {
