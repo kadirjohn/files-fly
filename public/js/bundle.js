@@ -210,7 +210,7 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Zip indirme başarısız: ' + e.message);
+      alert(t('bundleZipFailed') + ': ' + e.message);
     }
   }
 
@@ -227,7 +227,7 @@
   function updateSelected() {
     const ids = selectedIds();
     dom.dlSelected.disabled = ids.length === 0 || bundle.is_encrypted;
-    dom.dlSelected.textContent = 'Seçilenleri indir (' + ids.length + ')';
+    dom.dlSelected.textContent = t('bundleDownloadSelected') + ' (' + ids.length + ')';
   }
 
   // =========================================================================
@@ -243,7 +243,7 @@
     dom.gateErr.classList.add('hidden');
     const pw = dom.gatePass.value;
     if (!pw) {
-      dom.gateErr.textContent = 'Lütfen parolayı girin.';
+      dom.gateErr.textContent = t('bundlePasswordEmpty');
       dom.gateErr.classList.remove('hidden');
       return;
     }
@@ -271,7 +271,7 @@
     } catch (e) {
       dom.gateSubmit.disabled = false;
       dbg.error('bundle', 'decrypt error', e);
-      dom.gateErr.textContent = 'Şifre çözme başarısız. Parola yanlış olabilir.';
+      dom.gateErr.textContent = t('bundlePasswordWrong');
       dom.gateErr.classList.remove('hidden');
     }
   });
@@ -284,15 +284,18 @@
     const upd = () => {
       const left = new Date(bundle.expire_at) - new Date();
       if (left <= 0) {
-        dom.countdown.textContent = 'Süre dolmuş';
+        dom.countdown.textContent = t('bundleCountdownExpired');
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
         return;
       }
       const mins = Math.floor(left / 60000);
       const hrs = Math.floor(mins / 60);
+      const hrLabel = currentLang === 'en' ? 'h' : 'sa';
+      const minLabel = currentLang === 'en' ? 'm' : 'dk';
+      const leftLabel = currentLang === 'en' ? 'left' : 'kaldı';
       dom.countdown.textContent = hrs > 0
-        ? 'Süre: ' + hrs + ' sa ' + (mins % 60) + ' dk kaldı'
-        : 'Süre: ' + mins + ' dk kaldı';
+        ? hrs + ' ' + hrLabel + ' ' + (mins % 60) + ' ' + minLabel + ' ' + leftLabel
+        : mins + ' ' + minLabel + ' ' + leftLabel;
     };
     upd();
     countdownTimer = setInterval(upd, 30000);

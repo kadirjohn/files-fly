@@ -46,9 +46,67 @@ let countdownIntervals = [];
 // Sayfa Yükleme
 // =========================================================================
 
-  // app.js'in upload sonrası çağırabilmesi için global olarak expose et
-  window.loadFiles = loadFiles;
+  // app.js'in upload sonrası çağırabilmesi için global olarak expose et.
+  // Artık ana liste bundle'ları gösterir (loadBundles); loadFiles eski dosya
+  // listesidir ve yalnızca geri uyumluluk için tutulur, ana akışta çağrılmaz.
+  window.loadFiles = loadBundles;
 
+  async function loadBundles(page = 1) {
+  DOM.loadingState.classList.remove('hidden');
+  DOM.emptyState.classList.add('hidden');
+  DOM.errorState.classList.add('hidden');
+  DOM.fileList.innerHTML = '';
+  DOM.pagination.classList.add('hidden');
+
+  countdownIntervals.forEach(clearInterval);
+  countdownIntervals = [];
+
+  try {
+    dbg.info('session', `GET /api/session/bundles?page=${page}&limit=20`);
+    const resp = await fetch(`/api/session/bundles?page=${page}&limit=20`);
+
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        dbg.warn('session', '401 — session recreating');
+        await fetch('/api/session', { method: 'POST' });
+        return loadBundles(page);
+      }
+      dbg.error('session', `HTTP ${resp.status}`);
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    currentPage = data.page;
+    totalPages = data.pages;
+    dbg.info('session', `✓ Bundles loaded`, { count: data.bundles.length, page: data.page, pages: data.pages });
+
+    DOM.loadingState.classList.add('hidden');
+
+    if (data.bundles.length === 0) {
+      dbg.log('session', 'No bundles (empty session)');
+      DOM.emptyState.classList.remove('hidden');
+      return;
+    }
+
+    renderBundleCards(data.bundles);
+
+    if (totalPages > 1) {
+      DOM.pagination.classList.remove('hidden');
+      DOM.pageInfo.textContent = `${t('sessionPageInfo')} ${currentPage} / ${totalPages}`;
+      DOM.prevPageBtn.disabled = currentPage <= 1;
+      DOM.nextPageBtn.disabled = currentPage >= totalPages;
+    }
+  } catch (err) {
+    dbg.error('session', 'Bundles loading error', err);
+    console.error('[Session] Bundle\'lar yüklenirken hata:', err);
+    DOM.loadingState.classList.add('hidden');
+    DOM.errorState.classList.remove('hidden');
+    DOM.errorText.textContent = t('sessionErrorLoad');
+  }
+}
+
+  // Eski dosya-bazlı liste (GERİ UYUMLU). Ana akış artık bundle kartlarını
+  // kullanır; bu fonksiyon altta tutulur ama window.loadFiles'e bağlı değildir.
   async function loadFiles(page = 1) {
   DOM.loadingState.classList.remove('hidden');
   DOM.emptyState.classList.add('hidden');
@@ -258,6 +316,171 @@ function renderFiles(files) {
 }
 
 // =========================================================================
+// Bundle Kartları (Dosyalarım — bundle bazlı)
+// =========================================================================
+// /api/session/bundles her bundle için {id,title,file_count,total_size,
+// expire_at,is_encrypted,created_at} döndürür — dosya listesi YOK. Karttaki
+// thumbnail'ler için her bundle'a ayrı GET /api/bundles/:id (dosya listesi)
+// yapılır; ilk 4 image dosyasının /thumb'u gösterilir. Şifreli bundle'lar için
+// raw /thumb ciphertext döner → thumbnail yerine ikon göster. N+1 kabul edilir
+// (plan notu). Kopyala → /b/:id linki; Önizle → /b/:id (receiver); Sil →
+// confirm → DELETE /api/bundles/:id → yeniden yükle.
+
+const BUNDLE_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+
+function renderBundleCards(bundles) {
+  DOM.fileList.innerHTML = '';
+
+  for (const b of bundles) {
+    const expired = new Date(b.expire_at) < new Date();
+    const isEncrypted = !!b.is_encrypted;
+    const timeLeft = expired ? t('sessionExpired') : getTimeLeft(b.expire_at);
+    const shareUrl = `${window.location.origin}/b/${b.id}`;
+    const titleText = b.title || (b.file_count + ' ' + t('bundleFiles'));
+
+    const card = document.createElement('div');
+    card.className = `bundle-card${expired ? ' expired' : ''}`;
+    card.dataset.bundle = b.id;
+    card.innerHTML = `
+      <div class="bundle-card-top">
+        <span class="bundle-card-icon">${BUNDLE_ICON_SVG}</span>
+        <div class="bundle-card-info">
+          <div class="bundle-card-title">
+            ${escapeHtml(titleText)}
+            ${isEncrypted ? `<span class="encrypted-lock-badge" title="${t('bundlePasswordProtected')}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>` : ''}
+          </div>
+          <div class="bundle-card-count">
+            <span class="meta-badge meta-badge-size">${b.file_count} ${t('bundleFiles')} · ${formatSize(b.total_size)}</span>
+            <span class="meta-badge meta-badge-time">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span class="countdown" data-expire="${b.expire_at}">${timeLeft}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="bundle-card-thumbs" data-bundle="${b.id}"></div>
+      <div class="bundle-card-bottom">
+        <div class="bundle-card-actions">
+          ${!expired ? `
+            <button class="btn btn-copy btn-sm copy-link-btn" data-url="${escapeAttr(shareUrl)}" title="${t('trayCopyLink')}" aria-label="${t('trayCopyLink')}">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+            <a class="btn btn-ghost btn-sm" href="/b/${b.id}" target="_blank" rel="noopener" title="${t('bundlePreview')}" aria-label="${t('bundlePreview')}">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </a>
+            <button class="btn btn-danger btn-sm bundle-delete-btn" data-delete="${b.id}" title="${t('bundleDelete')}" aria-label="${t('bundleDelete')}">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          ` : `
+            <span class="text-muted text-xs file-item-deleted">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              ${t('sessionDeleted')}
+            </span>
+          `}
+        </div>
+      </div>
+    `;
+
+    DOM.fileList.appendChild(card);
+
+    if (!expired) {
+      startCountdown(card, b.expire_at);
+      // Thumbnail'leri async yükle (kart DOM'a eklendikten sonra).
+      loadBundleThumbs(card.querySelector('.bundle-card-thumbs'), b.id, isEncrypted);
+    }
+  }
+
+  // Kopyala butonları (renderFiles ile aynı görsel feedback).
+  document.querySelectorAll('.bundle-card .copy-link-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyToClipboard(btn.dataset.url);
+      const svgEl = btn.querySelector('svg');
+      const origHtml = svgEl ? svgEl.outerHTML : '';
+      if (svgEl) {
+        svgEl.outerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" class="icon-success"><polyline points="20 6 9 17 4 12"/></svg>';
+        btn.classList.add('btn-copied');
+      }
+      setTimeout(() => {
+        const newSvg = btn.querySelector('svg');
+        if (newSvg) newSvg.outerHTML = origHtml;
+        btn.classList.remove('btn-copied');
+      }, 2000);
+    });
+  });
+
+  // Önizle/indir linki kart click'ini tetiklemesin.
+  document.querySelectorAll('.bundle-card a.btn-ghost').forEach(a => {
+    a.addEventListener('click', (e) => e.stopPropagation());
+  });
+
+  // Sil butonları → confirm → DELETE → yeniden yükle.
+  document.querySelectorAll('.bundle-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.delete;
+      if (!confirm(t('bundleDeleteConfirm'))) return;
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/bundles/' + id, { method: 'DELETE' });
+        if (resp.status === 401) {
+          await fetch('/api/session', { method: 'POST' });
+          const retry = await fetch('/api/bundles/' + id, { method: 'DELETE' });
+          if (!retry.ok) throw new Error(`HTTP ${retry.status}`);
+        } else if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const card = btn.closest('.bundle-card');
+        if (card) {
+          card.style.transition = 'opacity .2s';
+          card.style.opacity = '0';
+          setTimeout(() => card.remove(), 200);
+        }
+        // Liste tamamen boşaldıysa boş-durum göster.
+        if (!DOM.fileList.children.length) {
+          DOM.emptyState.classList.remove('hidden');
+        }
+      } catch (err) {
+        dbg.error('session', 'bundle delete error', err);
+        btn.disabled = false;
+        alert(t('sessionErrorLoadShort'));
+      }
+    });
+  });
+}
+
+// Bir bundle'ın ilk 4 image dosyası için /thumb göster. Şifreli bundle →
+// thumbnail anlamsız (ciphertext) → sadece ikon bırakırız. Dosya listesini
+// GET /api/bundles/:id'den alırız (receiver metadata).
+async function loadBundleThumbs(thumbContainer, bundleId, isEncrypted) {
+  if (!thumbContainer) return;
+  if (isEncrypted) {
+    // Şifreli bundle: thumbnail yok → kilidi temsil eden tek ikon.
+    thumbContainer.innerHTML = `<span class="bundle-thumb-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`;
+    return;
+  }
+  try {
+    const resp = await fetch('/api/bundles/' + bundleId);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const images = (data.files || []).filter(f => f.mime_type && f.mime_type.startsWith('image/')).slice(0, 4);
+    if (!images.length) {
+      thumbContainer.innerHTML = `<span class="bundle-thumb-placeholder">${BUNDLE_ICON_SVG}</span>`;
+      return;
+    }
+    thumbContainer.innerHTML = images.map(f =>
+      `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="bundle-thumb" data-id="${f.id}">`
+    ).join('');
+    // Thumbnail yüklenemezse gizle (yer tutucu kalsın).
+    thumbContainer.querySelectorAll('img.bundle-thumb').forEach(img => {
+      img.addEventListener('error', () => { img.style.display = 'none'; });
+    });
+  } catch (err) {
+    dbg.error('session', 'bundle thumbs error', err);
+  }
+}
+
+// =========================================================================
 // Önizleme
 // =========================================================================
 
@@ -452,19 +675,19 @@ function getTimeLeft(expireAt) {
 
 DOM.prevPageBtn.addEventListener('click', () => {
   if (currentPage > 1) {
-    loadFiles(currentPage - 1);
+    loadBundles(currentPage - 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
 
 DOM.nextPageBtn.addEventListener('click', () => {
   if (currentPage < totalPages) {
-    loadFiles(currentPage + 1);
+    loadBundles(currentPage + 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
 
-DOM.retryLoadBtn.addEventListener('click', () => loadFiles(currentPage));
+DOM.retryLoadBtn.addEventListener('click', () => loadBundles(currentPage));
 
 // =========================================================================
 // Yardımcılar
@@ -531,7 +754,7 @@ function fallbackCopy(text) {
 // =========================================================================
 
   document.addEventListener('DOMContentLoaded', () => {
-    loadFiles();
+    loadBundles();
   });
 
 })();

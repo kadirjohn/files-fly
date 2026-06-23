@@ -924,8 +924,8 @@ function renderTray() {
       b.id === btn.dataset.pause || b.id === btn.dataset.resume || b.id === btn.dataset.cancel);
     if (btn.dataset.copy) {
       copyToClipboard(btn.dataset.copy);
-      btn.textContent = 'Kopyalandı!';
-      setTimeout(() => { btn.textContent = 'Linki kopyala'; }, 1500);
+      btn.textContent = t('trayCopied');
+      setTimeout(() => { btn.textContent = t('trayCopyLink'); }, 1500);
       return;
     }
     if (btn.dataset.pause && batch) { batch.pause(); return; }
@@ -947,11 +947,11 @@ function renderTray() {
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
       <div class="tray-batch-meta">${b.completedFiles.length}/${b.files.length} · %${pct}</div>
       <div class="tray-batch-actions">
-        ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">Linki kopyala</button>` : ''}
-        ${b.status === 'partial' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">Linki kopyala</button>` : ''}
-        ${b.status === 'uploading' ? `<button class="tray-btn" data-pause="${b.id}">Durdur</button>` : ''}
-        ${b.status === 'paused' ? `<button class="tray-btn" data-resume="${b.id}">Devam</button>` : ''}
-        ${b.status !== 'done' && b.status !== 'cancelled' ? `<button class="tray-btn" data-cancel="${b.id}">İptal</button>` : ''}
+        ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
+        ${b.status === 'partial' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
+        ${b.status === 'uploading' ? `<button class="tray-btn" data-pause="${b.id}">${t('trayPause')}</button>` : ''}
+        ${b.status === 'paused' ? `<button class="tray-btn" data-resume="${b.id}">${t('trayResume')}</button>` : ''}
+        ${b.status !== 'done' && b.status !== 'cancelled' ? `<button class="tray-btn" data-cancel="${b.id}">${t('trayCancel')}</button>` : ''}
       </div>`;
     body.appendChild(card);
   }
@@ -990,7 +990,7 @@ if (DOM.trayClose) {
     if (!active) {
       DOM.uploadTray.classList.add('hidden');
     } else {
-      showToast('Aktif yükleme var, kapatılamaz.', 'error');
+      showToast(t('trayActiveNoClose'), 'error');
     }
   });
 }
