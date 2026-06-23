@@ -662,6 +662,23 @@ h3 { font-size: 1.25rem; }
     color: var(--color-text-muted);
 }
 
+.preview-warning {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    color: var(--color-error);
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+}
+
+.preview-warning::before {
+    content: "⚠";
+    flex-shrink: 0;
+    font-size: 0.875rem;
+    line-height: 1.3;
+}
+
 /* -------------------------------------------------------------------------
    Progress Bar (Adım 2)
    ------------------------------------------------------------------------- */
@@ -1541,6 +1558,63 @@ h3 { font-size: 1.25rem; }
 .storage-backend-name .storage-backend-tag-local { color: var(--color-text-muted); }
 
 /* =========================================================================
+   Storage Kota/Kullanım Barı (kart içi — backend başına)
+   ========================================================================= */
+.storage-quota-bar-wrap {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.storage-quota-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.75rem;
+}
+.storage-quota-meta-label {
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+.storage-quota-meta-value {
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+.storage-quota-meta-value .storage-quota-pct {
+    color: var(--color-text-muted);
+    font-weight: 500;
+    margin-left: 0.25rem;
+    font-size: 0.7rem;
+}
+.storage-quota-track {
+    height: 6px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.storage-quota-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    background: var(--color-success);
+}
+/* Durum renkleri (data-quota-state) — durum rengi backend rengini geçersiz kılar */
+.storage-quota-fill[data-quota-state="ok"] { background: var(--color-success); }
+.storage-quota-fill[data-quota-state="warn"] { background: var(--color-warning); }
+.storage-quota-fill[data-quota-state="critical"] { background: var(--color-error); }
+.storage-quota-fill[data-quota-state="unknown"] { background: rgba(255, 255, 255, 0.18); }
+/* Sınırsız (kota yok) — tek noktalı çizgi, fill yok */
+.storage-quota-fill[data-quota-state="unlimited"] { background: rgba(255, 255, 255, 0.12); width: 100%; }
+.storage-quota-meta[data-quota-unlimited="1"] .storage-quota-meta-value { color: var(--color-text-muted); }
+
+/* =========================================================================
    Credential Modal — popup pencere (inline panel yerine)
    ========================================================================= */
 .storage-cred-modal-box {
@@ -1557,6 +1631,98 @@ h3 { font-size: 1.25rem; }
 }
 .storage-cred-modal-box.cred-backend-local {
     border-color: var(--color-border);
+}
+
+/* =========================================================================
+   Modal: Kota Seçici (preset pill'ler + custom GB input)
+   ========================================================================= */
+.storage-quota-field {
+    margin-bottom: 1.25rem;
+    padding-top: 1.1rem;
+    margin-top: 1.1rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.storage-quota-field-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+}
+.storage-quota-field-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    line-height: 1.4;
+}
+.storage-quota-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.storage-quota-preset {
+    position: relative;
+    cursor: pointer;
+}
+.storage-quota-preset input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.storage-quota-preset span {
+    display: inline-block;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    background: var(--color-surface);
+    transition: all 0.15s ease;
+    user-select: none;
+}
+.storage-quota-preset:hover span {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--color-surface-hover);
+}
+/* Seçili preset — :has(input:checked) (modern tarayıcılar) */
+.storage-quota-preset:has(input:checked) span {
+    border-color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.12);
+    color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 16px rgba(var(--color-primary-rgb), 0.18);
+}
+.storage-quota-custom-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+    cursor: pointer;
+}
+.storage-quota-custom-toggle input[type="radio"] {
+    accent-color: var(--color-primary);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+.storage-quota-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    transition: opacity 0.15s ease;
+}
+.storage-quota-custom-row[data-disabled="1"] {
+    opacity: 0.45;
+    pointer-events: none;
+}
+.storage-quota-custom-input {
+    width: 110px;
+}
+.storage-quota-custom-unit {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    font-weight: 600;
 }
 
 /* Modal içi form alanları — text-align center'ı kapat */

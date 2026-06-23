@@ -306,6 +306,14 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   const provider = await storage.getDefaultProvider();
   const storageBackend = provider.name;
 
+  // --- Aktif backend için depolama kotası kontrolü (admin tarafından girilir) ---
+  // Storage'a yazmadan ÖNCE kontrol: kota aşımı varsa hiç yüklemeyiz (orphan önle).
+  // Kota tanımlı değilse (null) checkBackendQuota false döner → reddetme yok.
+  const quotaExceeded = await storage.checkBackendQuota(storageBackend, file.data.length);
+  if (quotaExceeded) {
+    throw new Error('Storage quota exceeded for ' + storageBackend + ' backend');
+  }
+
   await provider.putObject(storageKey, file.data, { contentType: mimeType });
 
   // -----------------------------------------------------------------------

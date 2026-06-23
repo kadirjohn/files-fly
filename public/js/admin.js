@@ -26,6 +26,11 @@ let gateFileMeta = null;
 let gateMode = 'preview'; // 'preview' | 'download'
 let gateDecryptedBlobUrl = null;
 
+// Aktif dil — app.js ile aynı localStorage key'i (filesfly_lang). admin.js kendi
+// başına yüklendiği için app.js'in currentLang'ine güvenemeyiz; burada tanımlı.
+// Render fonksiyonları (renderStorageQuotaBar vb.) bu değeri kullanır.
+let currentLang = localStorage.getItem('filesfly_lang') || 'tr';
+
 // =========================================================================
 // DOM Referansları
 // =========================================================================
@@ -953,6 +958,107 @@ DOM.banIpBtn.addEventListener('click', async () => {
 // Storage backend status cache — loadSettings tarafından doldurulur
 let storageBackendsCache = [];
 
+/**
+ * Bir backend kartı için kullanım/kota progress bar HTML'i üretir.
+ * Backend status objesi: { usage_bytes, file_count, quota_bytes, ... }
+ *  - quota_bytes null/0 → "Sınırsız" (sadece kullanım, fill tek nokta)
+ *  - aksi halde yüzde: ok <70 (yeşil), warn 70-90 (sarı), critical >90 (kırmızı)
+ */
+function renderStorageQuotaBar(b) {
+  const usage = b.usage_bytes || 0;
+  const fileCount = b.file_count || 0;
+  const quota = b.quota_bytes || 0;
+  const usageFmt = formatSize(usage);
+
+  // Kota yok (null/0) → sınırsız mod
+  if (!quota) {
+    const isUnlimited = !quota;
+    return `
+      <div class="storage-quota-bar-wrap">
+        <div class="storage-quota-meta" data-quota-unlimited="1">
+          <span class="storage-quota-meta-label">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="M22 12H2"/><path d="M5.45 5.11A8 8 0 1 0 18.93 16"/></svg>
+            ${currentLang === 'en' ? 'Used' : 'Kullanılan'}
+          </span>
+          <span class="storage-quota-meta-value">${usageFmt} <span class="storage-quota-pct">${fileCount} ${currentLang === 'en' ? 'files' : 'dosya'} · ${currentLang === 'en' ? 'Unlimited' : 'Sınırsız'}</span></span>
+        </div>
+        <div class="storage-quota-track"><div class="storage-quota-fill" data-quota-state="unlimited"></div></div>
+      </div>
+    `;
+  }
+
+  const pct = Math.min(100, Math.round((usage / quota) * 100));
+  let state = 'ok';
+  if (pct >= 90) state = 'critical';
+  else if (pct >= 70) state = 'warn';
+  const quotaFmt = formatSize(quota);
+
+  return `
+    <div class="storage-quota-bar-wrap">
+      <div class="storage-quota-meta">
+        <span class="storage-quota-meta-label">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+          ${currentLang === 'en' ? 'Storage' : 'Depolama'}
+        </span>
+        <span class="storage-quota-meta-value">${usageFmt} / ${quotaFmt} <span class="storage-quota-pct">%${pct} · ${fileCount} ${currentLang === 'en' ? 'files' : 'dosya'}</span></span>
+      </div>
+      <div class="storage-quota-track"><div class="storage-quota-fill" data-quota-state="${state}" style="width:${pct}%"></div></div>
+    </div>
+  `;
+}
+
+/**
+ * Credential modalı için kota seçici (preset pill'ler + custom GB input) üretir.
+ * field.presets: [{ label, value(bytes) }], value=0 → "Sınırsız".
+ * currentValue: DB'den okunan mevcut byte değeri (string veya null).
+ * data-quota-kind="1" → saveStorageCredentials bu input'u özel işler (GB→byte).
+ */
+function renderQuotaField(field, currentValue) {
+  const cur = currentValue ? parseInt(currentValue, 10) : 0;
+  const presets = field.presets || [];
+
+  // Mevcut değer hangi preset'e denk geliyor? Hiçbiri → custom mod.
+  let matchedPreset = null;
+  for (const p of presets) {
+    if (p.value === cur) { matchedPreset = p; break; }
+  }
+  const isCustom = !matchedPreset && cur > 0;
+  const customGb = isCustom ? (cur / (1024 ** 3)).toString() : '';
+
+  const presetHtml = presets.map((p, i) => {
+    const selected = matchedPreset && matchedPreset.value === p.value;
+    return `
+      <label class="storage-quota-preset">
+        <input type="radio" name="quota-preset" value="${p.value}" data-quota-preset="1" ${selected ? 'checked' : ''}>
+        <span>${escapeHtml(p.label)}</span>
+      </label>
+    `;
+  }).join('');
+
+  // "Sınırsız" preset seçiliyse (value=0) → unltd; custom input disabled.
+  const unltdSelected = matchedPreset && matchedPreset.value === 0;
+
+  return `
+    <div class="storage-quota-field">
+      <label class="storage-quota-field-label">${escapeHtml(field.label)}</label>
+      <p class="storage-quota-field-hint">${currentLang === 'en'
+        ? 'How much storage this backend should allow. Files Fly tracks usage from the database and rejects uploads when the limit is reached.'
+        : "Bu backend'in ne kadar depolamaya izin vereceğini belirler. Files Fly kullanımı veritabanından takip eder ve limite ulaşılınca yüklemeleri reddeder."}</p>
+      <div class="storage-quota-presets">${presetHtml}</div>
+      <label class="storage-quota-custom-toggle">
+        <input type="radio" name="quota-preset" value="custom" data-quota-preset-custom="1" ${isCustom ? 'checked' : ''}>
+        <span>${currentLang === 'en' ? 'Custom value' : 'Özel değer'}</span>
+      </label>
+      <div class="storage-quota-custom-row" data-disabled="${(isCustom || unltdSelected === false && matchedPreset) ? '0' : '1'}">
+        <input type="number" min="0" step="0.1" class="form-input storage-quota-custom-input storage-cred-input"
+               data-key="${field.key}" data-secret="0" data-quota-kind="1" data-wasset="0"
+               value="${escapeHtml(customGb)}" placeholder="örn: 5" autocomplete="off">
+        <span class="storage-quota-custom-unit">GB</span>
+      </div>
+    </div>
+  `;
+}
+
 async function loadSettings() {
   try {
     const [configResp, storageResp] = await Promise.all([
@@ -991,18 +1097,17 @@ async function loadSettings() {
       const credHint = (!b.available && !hasMissingDeps && b.backend !== 'local')
         ? '<div class="storage-backend-error">Bağlanmak için bu karta tıklayın ve bilgilerinizi girin.</div>'
         : (hasMissingDeps ? `<div class="storage-backend-error">${escapeHtml(b.error)}${b.missingDeps ? ' — paketler: ' + escapeHtml(b.missingDeps.join(', ')) : ''}</div>` : '');
-      // Click-to-edit-credentials hint for R2/Supabase
-      const credClickHint = b.backend !== 'local'
-        ? `<div class="storage-backend-cred-hint">Bu karta tıklayınca bağlantı bilgileri menüsü açılır</div>`
-        : '';
+      // Click-to-edit hint — tüm backend'ler tıklanabilir (local de kota girmek için).
+      const credClickHint = '<div class="storage-backend-cred-hint">Bu karta tıklayınca bağlantı bilgileri ve kota menüsü açılır</div>';
       return `
-        <label class="storage-backend-option ${isActive ? 'active' : ''} ${trulyDisabled ? 'disabled' : ''} ${b.backend !== 'local' ? 'storage-backend-clickable' : ''}" data-backend="${b.backend}">
+        <label class="storage-backend-option ${isActive ? 'active' : ''} ${trulyDisabled ? 'disabled' : ''} storage-backend-clickable" data-backend="${b.backend}">
           <input type="radio" name="storage_backend" value="${b.backend}" ${isActive ? 'checked' : ''} ${trulyDisabled ? 'disabled' : ''}>
           <div class="storage-backend-info">
             <div class="storage-backend-name">${labelHtml} ${statusLabel}</div>
             <div class="storage-backend-desc">${desc[b.backend] || ''}</div>
             ${credHint}
             ${credClickHint}
+            ${renderStorageQuotaBar(b)}
           </div>
         </label>
       `;
@@ -1287,6 +1392,14 @@ function renderStorageCredentialForm(backend, data) {
   const fieldsHtml = (data.schema || []).map(field => {
     const current = data.config[field.key];
     const isSecret = field.secret;
+
+    // Kota field'i (kind:'quota') → preset pill'ler + custom GB input (özel render).
+    // Normal text input değil; data-quota-kind="1" ile saveStorageCredentials
+    // bu input'u GB→byte çevirerek işler.
+    if (field.kind === 'quota') {
+      return renderQuotaField(field, current);
+    }
+
     const inputType = isSecret ? 'password' : 'text';
     const placeholderAttr = field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : '';
 
@@ -1347,6 +1460,21 @@ function renderStorageCredentialForm(backend, data) {
     });
   });
 
+  // --- Kota preset radio'ları: custom input'u disable/enable ---
+  const customRow = content.querySelector('.storage-quota-custom-row');
+  const customInput = content.querySelector('.storage-quota-custom-input');
+  function syncQuotaCustomState() {
+    const checked = content.querySelector('input[name="quota-preset"]:checked');
+    if (!checked || !customRow) return;
+    // Custom radio seçili değilse custom row disable; seçiliyse enable.
+    customRow.dataset.disabled = checked.dataset.quotaPresetCustom === '1' ? '0' : '1';
+    if (customInput) customInput.disabled = checked.dataset.quotaPresetCustom !== '1';
+  }
+  content.querySelectorAll('input[name="quota-preset"]').forEach(r => {
+    r.addEventListener('change', syncQuotaCustomState);
+  });
+  syncQuotaCustomState();
+
   // Kaydet butonu
   const saveBtn = document.getElementById('storage-cred-save');
   if (saveBtn) {
@@ -1367,8 +1495,31 @@ async function saveStorageCredentials(backend) {
 
   const updates = {};
   const inputs = document.querySelectorAll('.storage-cred-input');
+
+  // --- Kota field'i: preset radio seçimini oku, custom input'u GB→byte çevir ---
+  const presetChecked = document.querySelector('input[name="quota-preset"]:checked');
+  const quotaCustomInput = document.querySelector('.storage-quota-custom-input[data-quota-kind="1"]');
+  if (presetChecked && quotaCustomInput) {
+    const quotaKey = quotaCustomInput.dataset.key; // QUOTA_BYTES
+    if (presetChecked.dataset.quotaPreset === '1') {
+      // Bir preset seçili (value byte cinsinden; 0 = Sınırsız)
+      updates[quotaKey] = String(presetChecked.value);
+    } else if (presetChecked.dataset.quotaPresetCustom === '1') {
+      // Custom mod → GB input'unu byte'a çevir
+      const gb = parseFloat(quotaCustomInput.value);
+      if (!isNaN(gb) && gb > 0) {
+        updates[quotaKey] = String(Math.round(gb * 1024 ** 3));
+      } else {
+        // Geçersiz custom değer → Sınırsız (0)
+        updates[quotaKey] = '0';
+      }
+    }
+  }
+
   inputs.forEach(input => {
     const key = input.dataset.key;
+    // Kota input'u yukarıda özel işlendi, atla.
+    if (input.dataset.quotaKind === '1') return;
     const isSecret = input.dataset.secret === '1';
     const wasSet = input.dataset.wasset === '1'; // backend "Ayarlandı" döndü mü?
     const val = (input.value || '').trim();

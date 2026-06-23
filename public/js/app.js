@@ -86,6 +86,11 @@ let totalChunks = 0;
 let uploadedChunks = 0;
 let chunkBytesUploaded = 0;
 
+// Admin config'ten okunan ayarlar (proaktif frontend kontrolü için)
+let configMaxFileSizeMB = 0;       // 0 = bilinmiyor/bilgi yok
+let configAllowedMimeTypes = '*';  // '*' = tüm türler izinli
+let configMaxExpireHours = 48;     // dropdown budama için
+
 // =========================================================================
 // Adım Yönetimi
 // =========================================================================
@@ -135,6 +140,97 @@ DOM.dropZone.addEventListener('drop', (e) => {
 // Seçilen dosya için object URL (preview amaçlı, bellek sızıntısını önlemek için takip edilir)
 let selectedFileObjectURL = null;
 
+/**
+ * MIME türünün admin'in allowed_mime_types ayarına göre izinli olup olmadığını
+ * kontrol eder — backend isMimeTypeAllowed() mantığının client-side mirror'ı.
+ * Amaç: kullanıcıyı backend'e kadar yormadan, seçim anında uyarabilmek.
+ *
+ * @param {string} mimeType - Dosyanın MIME türü (file.type)
+ * @returns {boolean}
+ */
+function isMimeTypeAllowedClient(mimeType) {
+  const allowed = configAllowedMimeTypes;
+  if (!allowed || allowed === '*') return true;
+
+  const mime = (mimeType || '').toLowerCase();
+  // Boş MIME (örn. bazı tarayıcılarda uzantıdan çıkarsanamayan türler) → engellemeyelim,
+  // backend zaten son sözü söyler. Sadece net bir şekilde izinli listede OLMAYANları
+  // reddetmek istiyoruz.
+  if (!mime) return true;
+
+  const allowedTypes = allowed.split(',').map(s => s.trim().toLowerCase());
+  for (const allowedType of allowedTypes) {
+    if (allowedType === '*') return true;
+    if (allowedType.endsWith('/*')) {
+      const prefix = allowedType.replace('/*', '');
+      if (mime.startsWith(prefix + '/')) return true;
+    }
+    if (allowedType === mime) return true;
+  }
+  return false;
+}
+
+/**
+ * Seçilen dosyayı admin ayarlarına göre proaktif doğrular (boyut + MIME).
+ * Hata varsa preview'da uyarı gösterir ve yükleme butonunu devre dışı bırakır.
+ * Backend tekrar doğrulayacağı için bu sadece UX amaçlı (erken geri bildirim).
+ *
+ * @param {File} file
+ * @returns {boolean} - true: doğrulandı (yüklenebilir), false: reddedildi
+ */
+function validateSelectedFile(file) {
+  // --- Boyut kontrolü ---
+  if (configMaxFileSizeMB > 0) {
+    const maxSizeBytes = configMaxFileSizeMB * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      const msg = currentLang === 'en'
+        ? `File is too large (${formatSize(file.size)}). Maximum allowed: ${configMaxFileSizeMB} MB.`
+        : `Dosya çok büyük (${formatSize(file.size)}). Maksimum izin verilen: ${configMaxFileSizeMB} MB.`;
+      showFileValidationError(file, msg);
+      return false;
+    }
+  }
+
+  // --- MIME kontrolü ---
+  // Şifrelenmiş dosyalarda file.type octet-stream'a dönebilir; proaktif MIME kontrolünü
+  // atla, backend zaten fields.mime_type üzerinden gerçek türü doğrular.
+  const willEncrypt = DOM.passwordToggle && DOM.passwordToggle.checked;
+  if (!willEncrypt && !isMimeTypeAllowedClient(file.type)) {
+    const msg = currentLang === 'en'
+      ? `File type "${file.type || 'unknown'}" is not allowed by the server.`
+      : `"${file.type || 'bilinmeyen'}" türündeki dosyalara sunucu izin vermiyor.`;
+    showFileValidationError(file, msg);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Doğrulama hatası durumunda preview'ı hata modunda gösterir.
+ * Thumbnail/ikon yine gösterilir ama uyarı metni eklenir ve buton disabled kalır.
+ */
+function showFileValidationError(file, message) {
+  DOM.previewName.textContent = file.name;
+  DOM.previewSize.textContent = formatSize(file.size);
+
+  // İkon (image ise thumbnail, video ise ilk kare, diğerleri SVG)
+  setPreviewIcon(file);
+
+  // Uyarı metnini preview bilgisinin altına ekle
+  let warnEl = document.getElementById('preview-warning');
+  if (!warnEl) {
+    warnEl = document.createElement('div');
+    warnEl.id = 'preview-warning';
+    warnEl.className = 'preview-warning';
+    DOM.filePreview.querySelector('.file-preview-info').appendChild(warnEl);
+  }
+  warnEl.textContent = message;
+
+  DOM.filePreview.classList.remove('hidden');
+  DOM.uploadBtn.disabled = true;
+}
+
 function handleFileSelect(file) {
   selectedFile = file;
 
@@ -144,21 +240,132 @@ function handleFileSelect(file) {
     selectedFileObjectURL = null;
   }
 
+  // Önceki doğrulama uyarısını temizle
+  const oldWarn = document.getElementById('preview-warning');
+  if (oldWarn) oldWarn.remove();
+
   // Dosya adı ve boyut
   DOM.previewName.textContent = file.name;
   DOM.previewSize.textContent = formatSize(file.size);
 
-  // İkon (resim ise gerçek thumbnail — URL.createObjectURL ile, base64/truncation yok)
-  if (file.type.startsWith('image/')) {
-    selectedFileObjectURL = URL.createObjectURL(file);
-    DOM.previewIcon.innerHTML = `<img src="${selectedFileObjectURL}" alt="${escapeHtml(file.name)}" class="preview-thumb">`;
-  } else {
-    DOM.previewIcon.textContent = getFileIcon(file.type, file.name);
-  }
+  // İkon (image → thumbnail, video → ilk kare, diğerleri → SVG)
+  setPreviewIcon(file);
 
   // Preview'ı göster
   DOM.filePreview.classList.remove('hidden');
-  DOM.uploadBtn.disabled = false;
+
+  // Proaktif doğrulama: boyut + MIME (backend'e gitmeden önce erken geri bildirim)
+  const valid = validateSelectedFile(file);
+  // validateSelectedFile hata durumunda butonu zaten disabled bırakır;
+  // doğrulandıysa butonu aktive et.
+  if (valid) {
+    DOM.uploadBtn.disabled = false;
+  }
+}
+
+/**
+ * Preview ikon alanını doldurur:
+ *  - image/* → gerçek thumbnail (object URL)
+ *  - video/* → ilk kare (client-side <video> + canvas)
+ *  - diğerleri → jenerik SVG ikon
+ */
+function setPreviewIcon(file) {
+  if (file.type.startsWith('image/')) {
+    selectedFileObjectURL = URL.createObjectURL(file);
+    DOM.previewIcon.innerHTML = `<img src="${selectedFileObjectURL}" alt="${escapeHtml(file.name)}" class="preview-thumb">`;
+  } else if (file.type.startsWith('video/')) {
+    // Video thumbnail'ı asenkron üretilir; üretilene kadar jenerik ikon göster
+    DOM.previewIcon.textContent = getFileIcon(file.type, file.name);
+    generateVideoThumbnail(file).then((thumbUrl) => {
+      // Bu arada başka dosya seçilmiş olabilir — eski dosyanın thumbnail'ını gösterme
+      if (selectedFile === file && thumbUrl) {
+        DOM.previewIcon.innerHTML = `<img src="${thumbUrl}" alt="${escapeHtml(file.name)}" class="preview-thumb">`;
+        // Önceki object URL varsa temizle, yenisini takip et
+        if (selectedFileObjectURL) URL.revokeObjectURL(selectedFileObjectURL);
+        selectedFileObjectURL = thumbUrl;
+      } else if (thumbUrl) {
+        // Kullanıcı çoktan başka dosya seçti → bu thumbnail'ı hemen serbest bırak
+        URL.revokeObjectURL(thumbUrl);
+      }
+    }).catch(() => {
+      // Thumbnail üretilemedi (örn. browser不支持, corrupt video) → SVG ikon kalır
+    });
+  } else {
+    DOM.previewIcon.textContent = getFileIcon(file.type, file.name);
+  }
+}
+
+/**
+ * Video dosyasından client-side ilk kareyi çıkarıp thumbnail (object URL) döndürür.
+ * <video> elementine yükler, loadeddata event'inde canvas'a çizer, toBlob ile dışa aktarır.
+ * Hiçbir harici bağımlılık (ffmpeg vb.) gerektirmez — tarayıcı yerel video decoding kullanır.
+ *
+ * @param {File} file - video dosyası
+ * @returns {Promise<string|null>} - object URL (başarısızsa null)
+ */
+function generateVideoThumbnail(file) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    const url = URL.createObjectURL(file);
+    let settled = false;
+    const cleanup = (result) => {
+      if (settled) return;
+      settled = true;
+      // video object URL'i serbest bırak (kendi thumbnail URL'imizi ayrıca oluşturacağız)
+      URL.revokeObjectURL(url);
+      video.removeAttribute('src');
+      try { video.load(); } catch { /* ignore */ }
+      resolve(result);
+    };
+
+    // Bazı tarayıcılarda seek gerekir ki ilk kare gerçekten decode edilsin
+    const capture = () => {
+      try {
+        // 1. saniyeye seek (film slatesinden kurtulmak için), ama süreyi aşma
+        const seekTo = Math.min(1, (video.duration || 1) / 2 || 1);
+        video.currentTime = seekTo;
+      } catch {
+        // seek desteklenmiyorsa mevcut kareyi yakala
+        drawAndFinish();
+      }
+    };
+
+    const drawAndFinish = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 160;
+        canvas.height = video.videoHeight || 90;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return cleanup(null);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) return cleanup(null);
+          cleanup(URL.createObjectURL(blob));
+        }, 'image/jpeg', 0.8);
+      } catch {
+        cleanup(null);
+      }
+    };
+
+    // seek tamamlandığında kareyi yakala
+    video.addEventListener('seeked', drawAndFinish, { once: true });
+    // loadeddata: ilk kare hazır → seek tetikle (seeked → capture)
+    video.addEventListener('loadeddata', capture, { once: true });
+    // Bazı tarayıcılarda loadeddata yerine canplay daha güvenilir
+    video.addEventListener('canplay', capture, { once: true });
+
+    // Güvenlik ağı: 5 saniye içinde kare yakalanamazsa vazgeç
+    setTimeout(() => cleanup(null), 5000);
+
+    // Hata: corrupt video / desteklenmeyen codec
+    video.addEventListener('error', () => cleanup(null), { once: true });
+
+    video.src = url;
+  });
 }
 
 // Dosyayı kaldır
@@ -170,6 +377,9 @@ DOM.clearFileBtn.addEventListener('click', () => {
   }
   selectedFile = null;
   DOM.fileInput.value = '';
+  // Doğrulama uyarısını temizle
+  const warn = document.getElementById('preview-warning');
+  if (warn) warn.remove();
   DOM.filePreview.classList.add('hidden');
   DOM.uploadBtn.disabled = true;
 });
@@ -182,6 +392,13 @@ DOM.passwordToggle.addEventListener('change', () => {
   } else {
     DOM.passwordInput.setAttribute('readonly', 'true');
     DOM.passwordInput.value = '';
+  }
+
+  // Parola durumu değiştiğinde, seçili dosya varsa MIME kontrolünü yeniden değerlendir:
+  // parola açıkken MIME kontrolü atlanır (şifreli upload octet-stream olur),
+  // kapandığında tekrar uygulanır. Boyut kontrolü her ikisinde de geçerli.
+  if (selectedFile && !DOM.filePreview.classList.contains('hidden')) {
+    handleFileSelect(selectedFile);
   }
 });
 
@@ -783,7 +1000,14 @@ function generateQR(url) {
 function handleUploadError(message) {
   dbg.error('upload', '✕ Upload error', message);
   showStep('error');
-  DOM.errorMessage.textContent = message;
+  // Depolama kotası aşımı (HTTP 507, backend mesajı 'quota' içerir) → zengin,
+  // actionable uyarı göster (kullanıcı dosya silebilir veya bekleyebilir).
+  // Diğer hatalar backend mesajını olduğu gibi gösterir.
+  if (message && typeof message === 'string' && message.includes('quota')) {
+    DOM.errorMessage.textContent = t('quotaFull');
+  } else {
+    DOM.errorMessage.textContent = message;
+  }
 }
 
 // Retry
@@ -813,6 +1037,9 @@ function resetToSelect() {
   DOM.fileInput.value = '';
   DOM.filePreview.classList.add('hidden');
   DOM.uploadBtn.disabled = true;
+  // Doğrulama uyarısını temizle
+  const warn = document.getElementById('preview-warning');
+  if (warn) warn.remove();
   DOM.passwordToggle.checked = false;
   DOM.passwordField.classList.add('hidden');
   DOM.passwordInput.value = '';
@@ -1116,22 +1343,116 @@ function showDecryptUI(fileId, metadata, isDownload) {
 
 async function loadConfig() {
   try {
-    // Maksimum dosya boyutunu ve chunk boyutunu config'den al
+    // Admin ayarlarını config'den al (max dosya boyutu, chunk boyutu, expire ayarları)
     const resp = await fetch('/api/admin/config');
     if (resp.ok) {
       const data = await resp.json();
       if (data.config) {
-        if (data.config.max_file_size_mb) {
-          DOM.maxSizeText.textContent = `Maksimum dosya boyutu: ${data.config.max_file_size_mb} MB`;
+        const cfg = data.config;
+
+        // --- Maksimum dosya boyutu (bilgi metni + proaktif kontrol) ---
+        if (cfg.max_file_size_mb) {
+          configMaxFileSizeMB = parseInt(cfg.max_file_size_mb) || 0;
+          DOM.maxSizeText.textContent = currentLang === 'en'
+            ? `Maximum file size: ${cfg.max_file_size_mb} MB`
+            : `Maksimum dosya boyutu: ${cfg.max_file_size_mb} MB`;
         }
-        if (data.config.chunk_size_mb) {
-          chunkSizeBytes = parseInt(data.config.chunk_size_mb) * 1024 * 1024;
+
+        // --- Chunk boyutu (chunked upload için) ---
+        if (cfg.chunk_size_mb) {
+          chunkSizeBytes = parseInt(cfg.chunk_size_mb) * 1024 * 1024;
         }
+
+        // --- İzin verilen MIME türleri (proaktif kontrol için) ---
+        if (cfg.allowed_mime_types) {
+          configAllowedMimeTypes = cfg.allowed_mime_types;
+        }
+
+        // --- Expire ayarları (dropdown'ı dinamik yapılandır) ---
+        // default_expire_hours → dropdown'ın varsayılan seçili option'ı
+        // max_expire_hours → bu değerden büyük seçenekleri dropdown'dan gizle
+        applyExpireConfig(cfg.default_expire_hours, cfg.max_expire_hours);
       }
     }
   } catch {
     // Config yüklenemezse varsayılan değerle devam et
   }
+}
+
+/**
+ * Admin'in belirlediği expire ayarlarını expire-select dropdown'ına uygular.
+ *  - default_expire_hours: dropdown'ın varsayılan seçili option'ı (admin 24 yaparsa
+ *    kullanıcı 24 saat seçili görür; admin–user tutarlılığı).
+ *  - max_expire_hours: bu sınırın üstündeki seçenekleri gizler (kullanıcı önceden
+ *    bilmeden backend hatası almasın).
+ * HTML'deki 5 seçenek (1/6/12/24/48) sabittir; burada sadece selected + gizleme
+ * ayarlanır. Mevcut seçili değer gizlenmek zorunda kalırsa, izinli en büyük değere
+ * düşürülür.
+ */
+function applyExpireConfig(defaultExpireHours, maxExpireHours) {
+  const select = DOM.expireSelect;
+  if (!select) return;
+
+  const maxExpire = maxExpireHours ? parseInt(maxExpireHours) : 48;
+  configMaxExpireHours = maxExpire;
+
+  // 1) max_expire_hours sınırının üstündeki seçenekleri gizle
+  let bestAllowedValue = null;
+  for (const option of select.options) {
+    const val = parseInt(option.value);
+    const allowed = val <= maxExpire;
+    option.hidden = !allowed;
+    if (allowed && (bestAllowedValue === null || val > bestAllowedValue)) {
+      bestAllowedValue = val;
+    }
+  }
+
+  // 2) Varsayılan seçili option'ı admin'in default_expire_hours değerine ayarla
+  let targetValue = defaultExpireHours ? parseInt(defaultExpireHours) : null;
+
+  // Admin'in default'u max sınırını aşıyorsa (tutarsız ayar), izinli en büyük değere düş
+  if (targetValue !== null && targetValue > maxExpire) {
+    targetValue = bestAllowedValue;
+  }
+
+  if (targetValue !== null) {
+    // Eşleşen tam option var mı?
+    let matched = null;
+    for (const option of select.options) {
+      if (parseInt(option.value) === targetValue && !option.hidden) {
+        matched = option;
+        break;
+      }
+    }
+
+    if (matched) {
+      select.value = String(targetValue);
+    } else {
+      // Admin'in default'u dropdown'daki sabit seçeneklerden birine denk gelmiyorsa
+      // (örn. 8 saat), ondan küçük/büyük en yakın izinli seçeneğe snap'le.
+      const snap = findClosestExpireOption(select, targetValue, maxExpire);
+      if (snap) select.value = snap.value;
+    }
+  }
+}
+
+/**
+ * Verilen hedef saate en yakın (izili) expire option'ını bulur.
+ */
+function findClosestExpireOption(select, targetValue, maxExpire) {
+  let best = null;
+  let bestDiff = Infinity;
+  for (const option of select.options) {
+    if (option.hidden) continue;
+    const val = parseInt(option.value);
+    if (val > maxExpire) continue;
+    const diff = Math.abs(val - targetValue);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = option;
+    }
+  }
+  return best;
 }
 
 // =========================================================================
@@ -1279,13 +1600,13 @@ function initLangSwitcher() {
 }
 
 function updateDynamicTranslations() {
-  // Max size text
+  // Max size text — configMaxFileSizeMB bilinirsa onu kullan, yoksa mevcut metinden sayıyı çek
   if (DOM.maxSizeText) {
-    const mb = DOM.maxSizeText.textContent.match(/\d+/);
+    const mb = configMaxFileSizeMB || (DOM.maxSizeText.textContent.match(/\d+/) || [])[0];
     if (mb) {
       DOM.maxSizeText.textContent = currentLang === 'tr'
-        ? `Maksimum dosya boyutu: ${mb[0]} MB`
-        : `Maximum file size: ${mb[0]} MB`;
+        ? `Maksimum dosya boyutu: ${mb} MB`
+        : `Maximum file size: ${mb} MB`;
     }
   }
 

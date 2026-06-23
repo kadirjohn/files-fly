@@ -310,6 +310,15 @@ async function finalizeUpload(fileId, dir, metadata) {
     throw new Error(`Total file size exceeds maximum allowed size of ${sizeCheck.maxSizeMB} MB`);
   }
 
+  // --- Aktif backend için depolama kotası kontrolü (admin tarafından girilir) ---
+  // Limit aşımı → upload'u geri al (orphan blob önle). Mevcat size-check pattern'i.
+  // Kota tanımlı değilse checkBackendQuota false döner → reddetme yok.
+  const chunkQuotaExceeded = await storage.checkBackendQuota(storageBackend, fileSize);
+  if (chunkQuotaExceeded) {
+    try { await provider.deleteObject(storageKey); } catch { /* ignore */ }
+    throw new Error('Storage quota exceeded for ' + storageBackend + ' backend');
+  }
+
   // -----------------------------------------------------------------------
   // Metadata'yı PG'ye Yaz (storage_backend + storage_key)
   // -----------------------------------------------------------------------

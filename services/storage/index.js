@@ -366,16 +366,105 @@ async function checkBackendAvailability(backend) {
  */
 async function getBackendStatuses() {
   const active = getActiveBackendName();
+
+  // Backend başına aktif kullanımı tek GROUP BY sorgusuyla çek (N+1 yerine).
+  // Süresi dolmuş dosyalar hard-delete edildiği için (cleanup-job), bu toplam
+  // = backend'deki gerçek aktif kullanım. idx_files_storage_backend index'i mevcut.
+  const usageByBackend = await getBackendUsage();
+
   const results = [];
   for (const backend of SUPPORTED_BACKENDS) {
     const check = await checkBackendAvailability(backend);
+    const usage = usageByBackend.get(backend) || { usage_bytes: 0, file_count: 0 };
+
+    // Kota: admin'in credential modalından girdiği değer (storage:<backend>:QUOTA_BYTES).
+    // Boş/sıfır → null (frontend "Sınırsız" gösterir). Local için de admin manuel girer;
+    // fs.statfs Docker'da host diskini gösterdiği için yanıltıcı olur (bkz. plan).
+    const quotaBytes = await getBackendQuotaBytes(backend);
+
     results.push({
       backend,
       active: backend === active,
+      usage_bytes: usage.usage_bytes,
+      file_count: usage.file_count,
+      quota_bytes: quotaBytes,
       ...check,
     });
   }
   return results;
+}
+
+/**
+ * Backend başına aktif (süresi dolmamış) dosyaların toplam boyutunu ve sayısını
+ * döndürür. Tek GROUP BY sorgusu — performanslı, N+1 değil.
+ *
+ * @returns {Promise<Map<string, { usage_bytes: number, file_count: number }>>}
+ *   key = backend adı ('local' | 'r2' | 'supabase')
+ */
+async function getBackendUsage() {
+  try {
+    const { query } = require('../database');
+    const res = await query(
+      `SELECT storage_backend,
+              COUNT(*)::bigint AS file_count,
+              COALESCE(SUM(file_size), 0)::bigint AS usage_bytes
+       FROM files
+       WHERE expire_at > NOW()
+       GROUP BY storage_backend`
+    );
+    const map = new Map();
+    for (const row of res.rows) {
+      map.set(row.storage_backend, {
+        usage_bytes: parseInt(row.usage_bytes, 10) || 0,
+        file_count: parseInt(row.file_count, 10) || 0,
+      });
+    }
+    return map;
+  } catch (err) {
+    // DB hatası durumunda boş kullanım döndür — UI yine render olur, sadece
+    // kullanım 0 görünür. Admin panel çökmesin.
+    console.error('[Storage] getBackendUsage error:', err.message);
+    return new Map();
+  }
+}
+
+/**
+ * Bir backend için admin'in girdiği kota (byte) değerini okur.
+ * Config key: storage:<backend>:QUOTA_BYTES
+ * Boş, sıfır veya parse edilemeyen değer → null (sınırsız/bilinmiyor).
+ *
+ * @param {string} backend
+ * @returns {Promise<number|null>}
+ */
+async function getBackendQuotaBytes(backend) {
+  try {
+    const { getConfig } = require('../config-service');
+    const raw = await getConfig(`storage:${backend}:QUOTA_BYTES`);
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upload öncesi kota kontrolü. Verilen ek boyut eklenince kota aşılırsa true.
+ * Kota tanımlı değilse (null) her zaman false — sınırsız.
+ *
+ * @param {string} backend - hedef backend (aktif backend)
+ * @param {number} additionalBytes - yüklenecek dosyanın byte cinsinden boyutu
+ * @returns {Promise<boolean>} - true = kota aşımı, upload reddedilmeli
+ */
+async function checkBackendQuota(backend, additionalBytes) {
+  const quota = await getBackendQuotaBytes(backend);
+  if (!quota) return false; // Kota yok → sınırsız, reddetme
+
+  const usageByBackend = await getBackendUsage();
+  const usage = usageByBackend.get(backend);
+  const usedBytes = usage ? usage.usage_bytes : 0;
+
+  return (usedBytes + (additionalBytes || 0)) > quota;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,13 +485,32 @@ async function getBackendStatuses() {
 // tarafından override ediliyordu); kaldırıldılar ki "bu ne alaka?" kafa
 // karışıklığı yaratmasınlar.
 const BACKEND_CONFIG_SCHEMA = {
-  local: [],
+  local: [
+    // Local için kota admin manuel girer. fs.statfs Docker'da host diskini
+    // gösterdiği için yanıltıcı olur — otomatik disk kapasitesi kullanılmaz.
+    // Preset "0" = sınırsız (kota yok). kind:'quota' frontend özel UI tetikler.
+    { key: 'QUOTA_BYTES', label: 'Depolama Kotası', secret: false, kind: 'quota',
+      presets: [
+        { label: 'Sınırsız', value: 0 },
+        { label: '10 GB', value: 10 * 1024 ** 3 },
+        { label: '50 GB', value: 50 * 1024 ** 3 },
+        { label: '100 GB', value: 100 * 1024 ** 3 },
+      ] },
+  ],
   r2: [
     { key: 'R2_ACCOUNT_ID', label: 'Account ID', secret: false, placeholder: 'Cloudflare account ID' },
     { key: 'R2_ACCESS_KEY_ID', label: 'Access Key ID', secret: false, placeholder: 'R2 API access key' },
     { key: 'R2_SECRET_ACCESS_KEY', label: 'Secret Access Key', secret: true, placeholder: 'R2 API secret' },
     { key: 'R2_BUCKET_NAME', label: 'Bucket Name', secret: false, placeholder: 'my-filesfly-bucket' },
     { key: 'R2_PUBLIC_BASE_URL', label: 'Public Base URL (opsiyonel)', secret: false, placeholder: 'https://<id>.r2.dev' },
+    { key: 'QUOTA_BYTES', label: 'Depolama Kotası', secret: false, kind: 'quota',
+      presets: [
+        { label: 'Free — 10 GB', value: 10 * 1024 ** 3 },
+        { label: '25 GB', value: 25 * 1024 ** 3 },
+        { label: '100 GB', value: 100 * 1024 ** 3 },
+        { label: '1 TB', value: 1024 * 1024 ** 3 },
+        { label: 'Sınırsız', value: 0 },
+      ] },
   ],
   supabase: [
     { key: 'SUPABASE_S3_ENDPOINT', label: 'S3 Endpoint', secret: false, placeholder: 'https://<project>.supabase.co/storage/v1/s3' },
@@ -411,6 +519,14 @@ const BACKEND_CONFIG_SCHEMA = {
     { key: 'SUPABASE_S3_SECRET_ACCESS_KEY', label: 'Secret Access Key', secret: true, placeholder: 'S3 secret' },
     { key: 'SUPABASE_S3_BUCKET', label: 'Bucket Name', secret: false, placeholder: 'filesfly' },
     { key: 'SUPABASE_S3_PUBLIC_BASE_URL', label: 'Public Base URL (opsiyonel)', secret: false, placeholder: 'https://<project>.supabase.co/storage/v1/object/public/' },
+    { key: 'QUOTA_BYTES', label: 'Depolama Kotası', secret: false, kind: 'quota',
+      presets: [
+        { label: 'Free — 1 GB', value: 1 * 1024 ** 3 },
+        { label: '8 GB', value: 8 * 1024 ** 3 },
+        { label: '25 GB', value: 25 * 1024 ** 3 },
+        { label: '100 GB', value: 100 * 1024 ** 3 },
+        { label: 'Sınırsız', value: 0 },
+      ] },
   ],
 };
 
@@ -660,6 +776,9 @@ module.exports = {
   // Durum
   checkBackendAvailability,
   getBackendStatuses,
+  // Kullanım & kota
+  getBackendUsage,
+  checkBackendQuota,
   // Cache invalidation
   invalidateProvider,
   // Credential yönetimi (admin panel)

@@ -54,6 +54,11 @@ addRoute('POST', '/api/upload', async (req, res, params, body) => {
     if (err.message.includes('exceeds maximum')) {
       return sendError(res, 413, err.message);
     }
+    if (err.message.includes('quota')) {
+      // Depolama kotası aşımı → 507 Insufficient Storage.
+      // Frontend bu durumda t('quotaFull') zengin uyarısını gösterir.
+      return sendError(res, 507, err.message);
+    }
     if (err.message.includes('not allowed')) {
       return sendError(res, 415, err.message);
     }
@@ -149,6 +154,10 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
 
     if (err.message.includes('exceeds maximum')) {
       return sendError(res, 413, err.message);
+    }
+    if (err.message.includes('quota')) {
+      // Depolama kotası aşımı → 507 Insufficient Storage.
+      return sendError(res, 507, err.message);
     }
     if (err.message.includes('not allowed')) {
       return sendError(res, 415, err.message);
