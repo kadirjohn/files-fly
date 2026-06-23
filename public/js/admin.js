@@ -1094,11 +1094,9 @@ async function loadSettings() {
         r2: 'Cloudflare R2 bulut depolama. Çıkış trafik ücretsiz, S3-uyumlu API. Karttan bilgileri güncelleyin.',
         supabase: 'Supabase Storage bulut depolama. S3-uyumlu endpoint. Karttan bilgileri güncelleyin.',
       };
-      const credHint = (!b.available && !hasMissingDeps && b.backend !== 'local')
-        ? '<div class="storage-backend-error">Bağlanmak için bu karta tıklayın ve bilgilerinizi girin.</div>'
-        : (hasMissingDeps ? `<div class="storage-backend-error">${escapeHtml(b.error)}${b.missingDeps ? ' — paketler: ' + escapeHtml(b.missingDeps.join(', ')) : ''}</div>` : '');
-      // Click-to-edit hint — tüm backend'ler tıklanabilir (local de kota girmek için).
-      const credClickHint = '<div class="storage-backend-cred-hint">Bu karta tıklayınca bağlantı bilgileri ve kota menüsü açılır</div>';
+      const credHint = hasMissingDeps
+        ? `<div class="storage-backend-error">${escapeHtml(b.error)}${b.missingDeps ? ' — paketler: ' + escapeHtml(b.missingDeps.join(', ')) : ''}</div>`
+        : '';
       return `
         <label class="storage-backend-option ${isActive ? 'active' : ''} ${trulyDisabled ? 'disabled' : ''} storage-backend-clickable" data-backend="${b.backend}">
           <input type="radio" name="storage_backend" value="${b.backend}" ${isActive ? 'checked' : ''} ${trulyDisabled ? 'disabled' : ''}>
@@ -1106,7 +1104,6 @@ async function loadSettings() {
             <div class="storage-backend-name">${labelHtml} ${statusLabel}</div>
             <div class="storage-backend-desc">${desc[b.backend] || ''}</div>
             ${credHint}
-            ${credClickHint}
             ${renderStorageQuotaBar(b)}
           </div>
         </label>

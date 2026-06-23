@@ -1,0 +1,320 @@
+/* -------------------------------------------------------------------------
+   Utility Classes
+   ------------------------------------------------------------------------- */
+.text-center { text-align: center; }
+.text-muted { color: var(--color-text-muted); }
+.text-error { color: var(--color-error); }
+.text-success { color: var(--color-success); }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mt-4 { margin-top: 2rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+.ml-2 { margin-left: 1rem; }
+
+.flex { display: flex; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-1-min { flex: 1; min-width: 200px; }
+.flex-1-min-150 { flex: 1; min-width: 150px; }
+.gap-1 { gap: 0.5rem; }
+.gap-2 { gap: 1rem; }
+
+.w-140 { width: 140px; }
+.w-160 { width: 160px; }
+.overflow-x-auto { overflow-x: auto; }
+
+.btn-full { width: 100%; }
+
+.login-card { max-width: 400px; margin: 3rem auto; }
+
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    opacity: 0.5;
+}
+
+.hidden { display: none !important; }
+
+/* -------------------------------------------------------------------------
+   CSP-safe SVG Icon Helpers (replaces inline style= attributes)
+   ------------------------------------------------------------------------- */
+.icon-inline {
+    margin-right: 4px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.icon-inline-shrink {
+    flex-shrink: 0;
+}
+.icon-success {
+    color: var(--color-success);
+}
+.icon-error {
+    color: var(--color-error);
+}
+.icon-info {
+    color: var(--color-upload);
+}
+.icon-warning {
+    color: #f59e0b;
+}
+.icon-muted {
+    color: var(--color-text-muted);
+}
+.icon-primary {
+    color: var(--color-primary);
+}
+.icon-va-mid {
+    vertical-align: middle;
+    margin-right: 3px;
+}
+
+/* -------------------------------------------------------------------------
+   Nav Link with SVG Icon
+   ------------------------------------------------------------------------- */
+.nav-link-files {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+.nav-link-files:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+
+/* -------------------------------------------------------------------------
+   Admin User Badge
+   ------------------------------------------------------------------------- */
+.admin-user-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
+    background: rgba(var(--color-primary-rgb), 0.1);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--color-primary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+/* -------------------------------------------------------------------------
+   Flex Icon Title (h3 with leading SVG icon)
+   ------------------------------------------------------------------------- */
+.flex-icon-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.flex-icon-title svg {
+    color: var(--color-primary);
+    flex-shrink: 0;
+}
+
+/* -------------------------------------------------------------------------
+   Search Input with Icon
+   ------------------------------------------------------------------------- */
+.search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.search-icon {
+    position: absolute;
+    left: 0.85rem;
+    color: var(--color-text-muted);
+    pointer-events: none;
+    flex-shrink: 0;
+}
+.search-with-icon {
+    padding-left: 2.4rem;
+}
+
+/* -------------------------------------------------------------------------
+   Admin Login Icon
+   ------------------------------------------------------------------------- */
+.login-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(var(--color-primary-rgb), 0.12);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+    margin: 0 auto 1.5rem;
+    color: var(--color-primary);
+    animation: icon-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* -------------------------------------------------------------------------
+   Inline Spinner (uploading title)
+   ------------------------------------------------------------------------- */
+.spinner-inline {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(var(--color-upload-rgb), 0.3);
+    border-top-color: var(--color-upload);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+}
+.uploading-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* -------------------------------------------------------------------------
+   Loading State (session.html)
+   ------------------------------------------------------------------------- */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2rem 0;
+}
+
+/* -------------------------------------------------------------------------
+   Password Notice (flex with icon)
+   ------------------------------------------------------------------------- */
+.password-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem 1rem;
+}
+
+/* -------------------------------------------------------------------------
+   Admin Tab enhanced (icon + text)
+   ------------------------------------------------------------------------- */
+.admin-tab {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 0.4rem;
+}
+.admin-tab svg {
+    transition: color var(--transition-fast);
+}
+.admin-tab.active svg {
+    color: var(--color-primary);
+}
+
+/* -------------------------------------------------------------------------
+   Stat Card enhanced
+   ------------------------------------------------------------------------- */
+.stat-card {
+    transition: all var(--transition-normal);
+}
+.stat-card:hover {
+    border-color: rgba(255,255,255,0.12);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+.stat-card:hover .stat-card-icon {
+    opacity: 0.12;
+}
+
+/* -------------------------------------------------------------------------
+   Clickable Table Row
+   ------------------------------------------------------------------------- */
+.row-clickable {
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+.row-clickable:hover {
+    background: rgba(var(--color-primary-rgb), 0.05);
+}
+
+/* -------------------------------------------------------------------------
+   Copy Button Copied State
+   ------------------------------------------------------------------------- */
+.btn-copied {
+    color: var(--color-success) !important;
+}
+
+/* -------------------------------------------------------------------------
+   Responsive
+   ------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+    .container {
+        padding: 1rem;
+    }
+
+    .glass-card {
+        padding: 1.25rem;
+    }
+
+    h1 { font-size: 1.5rem; }
+
+    .drop-zone {
+        padding: 2rem 1rem;
+    }
+
+    .file-item {
+        padding: 1rem;
+    }
+
+    .file-item-actions {
+        flex-direction: column;
+    }
+
+    .file-item-meta-badges {
+        gap: 0.35rem;
+    }
+
+    .meta-badge {
+        padding: 0.15rem 0.45rem;
+        font-size: 0.7rem;
+    }
+
+    .qr-code-row {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .admin-table {
+        font-size: 0.75rem;
+    }
+    .admin-table th, .admin-table td {
+        padding: 0.5rem 0.5rem;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Reduced Motion
+   ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+

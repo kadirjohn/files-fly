@@ -1,0 +1,860 @@
+/* -------------------------------------------------------------------------
+   Admin Paneli (admin.html)
+   ------------------------------------------------------------------------- */
+.admin-layout {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+.admin-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0;
+}
+
+.admin-tab {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-bottom: -1px;
+}
+
+.admin-tab:hover {
+    color: var(--color-text-main);
+}
+
+.admin-tab.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.admin-panel {
+    display: none;
+}
+
+.admin-panel.active {
+    display: block;
+    animation: fade-in 0.3s ease;
+}
+
+/* Dashboard Stats */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-card {
+    padding: 1.5rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Semi-transparent SVG icon in top-right */
+.stat-card-icon {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    opacity: 0.07;
+    color: var(--color-primary);
+    pointer-events: none;
+    line-height: 0;
+}
+
+.stat-value {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.stat-label {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+}
+
+/* Admin Table */
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.admin-table th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.admin-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+}
+
+.admin-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.admin-table .mono {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+/* =========================================================================
+   Storage Backend Selector (Admin Settings — Bucket mantığı)
+   ========================================================================= */
+.settings-section {
+    margin-bottom: 1.5rem;
+}
+
+.settings-section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.settings-section-title::before {
+    content: '';
+    width: 14px;
+    height: 2px;
+    background: var(--grad-primary);
+    border-radius: 2px;
+}
+
+/* =========================================================================
+   Settings Sub-Tabs — modern sidebar layout (buttons left, content right)
+   ========================================================================= */
+.settings-layout {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+}
+
+.settings-sidebar {
+    flex: 0 0 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    position: sticky;
+    top: 1rem;
+}
+
+.settings-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+    width: 100%;
+    font-family: var(--font-sans);
+}
+
+.settings-tab-btn:hover {
+    background: rgba(var(--color-primary-rgb), 0.06);
+    color: var(--color-text-main);
+}
+
+.settings-tab-btn.active {
+    background: rgba(var(--color-primary-rgb), 0.1);
+    color: var(--color-primary);
+    border-color: rgba(var(--color-primary-rgb), 0.25);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 0 var(--color-primary);
+}
+
+.settings-tab-btn svg {
+    flex-shrink: 0;
+}
+
+.settings-tab-btn .settings-tab-badge {
+    margin-left: auto;
+    font-size: 0.6875rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    background: rgba(var(--color-error-rgb), 0.15);
+    color: var(--color-error);
+    font-weight: 600;
+}
+
+.settings-content {
+    flex: 1;
+    min-width: 0; /* flexbox overflow fix */
+}
+
+.settings-panel {
+    display: none;
+    animation: fade-in 0.25s ease;
+}
+
+.settings-panel.active {
+    display: block;
+}
+
+/* Responsive: mobile'de sidebar üstte, yatay scroll */
+@media (max-width: 768px) {
+    .settings-layout {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .settings-sidebar {
+        flex: 0 0 auto;
+        flex-direction: row;
+        overflow-x: auto;
+        position: relative;
+        top: 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--color-border);
+    }
+    .settings-tab-btn {
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+}
+
+.settings-divider {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: 1.5rem 0;
+}
+
+.storage-backend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.storage-backend-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1.15rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: transform 0.28s var(--ease-out-expo),
+                border-color var(--transition-fast),
+                background var(--transition-fast),
+                box-shadow 0.28s var(--ease-out-expo);
+    user-select: none;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.04);
+}
+.storage-backend-option:hover:not(.disabled) {
+    border-color: rgba(255,255,255,0.12);
+    background: var(--color-surface-hover);
+    transform: translateY(-1px);
+}
+.storage-backend-option.storage-backend-clickable:hover:not(.disabled) {
+    border-color: var(--color-border-active);
+    cursor: pointer;
+    box-shadow: 0 8px 24px -10px rgba(var(--color-primary-rgb), 0.22),
+                inset 0 1px 0 0 rgba(255,255,255,0.06);
+}
+.storage-backend-option.active {
+    border-color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.06);
+    box-shadow: 0 0 0 1px rgba(var(--color-primary-rgb), 0.4),
+                0 10px 28px -12px rgba(var(--color-primary-rgb), 0.3),
+                inset 0 1px 0 0 rgba(255,255,255,0.06);
+}
+
+.storage-backend-option.disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+
+.storage-backend-option input[type="radio"] {
+    margin-top: 0.25rem;
+    accent-color: var(--color-primary);
+    cursor: inherit;
+}
+
+.storage-backend-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.storage-backend-name {
+    font-weight: 600;
+    color: var(--color-text-main);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.2rem;
+}
+
+.storage-backend-desc {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+}
+
+.storage-backend-error {
+    font-size: 0.75rem;
+    color: var(--color-error);
+    margin-top: 0.35rem;
+    word-break: break-word;
+}
+
+.storage-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+}
+
+.storage-badge-active {
+    background: rgba(var(--color-primary-rgb), 0.15);
+    color: var(--color-primary);
+    border-color: rgba(var(--color-primary-rgb), 0.35);
+}
+
+.storage-badge-ok {
+    background: rgba(var(--color-success-rgb), 0.12);
+    color: var(--color-success);
+    border-color: rgba(var(--color-success-rgb), 0.3);
+}
+
+.storage-badge-error {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--color-error);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* =========================================================================
+   Storage Credential Editor Panel (Admin Settings)
+   ========================================================================= */
+.storage-cred-panel {
+    margin-top: 1rem;
+}
+
+.storage-cred-panel.hidden {
+    display: none;
+}
+
+.storage-cred-card {
+    padding: 1.25rem;
+    background: rgba(var(--color-primary-rgb), 0.03);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.2);
+    border-radius: var(--radius-md);
+}
+
+.storage-cred-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.storage-cred-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.storage-cred-field {
+    margin-bottom: 1rem;
+}
+
+.storage-cred-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.storage-cred-input-row .form-input {
+    flex: 1;
+}
+
+.storage-secret-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.storage-secret-toggle:hover {
+    border-color: var(--color-border-active);
+    color: var(--color-primary);
+}
+
+.storage-secret-dot {
+    color: var(--color-primary);
+    font-size: 0.6em;
+    vertical-align: middle;
+}
+
+/* "Ayarlandı" badge for set secrets (never echoes raw value) */
+.storage-cred-set-badge {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.45rem;
+    background: rgba(var(--color-success-rgb), 0.12);
+    color: var(--color-success);
+    border: 1px solid rgba(var(--color-success-rgb), 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* Audit log table (Son Değişiklikler) */
+.audit-log-table {
+    font-size: 0.8125rem;
+}
+
+.audit-log-table th,
+.audit-log-table td {
+    padding: 0.5rem 0.75rem;
+}
+
+/* =========================================================================
+   Backend Color Theming — her backend kendi rengiyle
+   R2 = orange (Cloudflare), Supabase = green (emerald), Local = neutral
+   ========================================================================= */
+.storage-backend-option[data-backend="local"] {
+    border-left: 3px solid var(--color-text-dark);
+}
+.storage-backend-option[data-backend="r2"] {
+    border-left: 3px solid #f59e0b;
+}
+.storage-backend-option[data-backend="r2"].active {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 1px #f59e0b, 0 0 20px rgba(245, 158, 11, 0.15);
+}
+.storage-backend-option[data-backend="supabase"] {
+    border-left: 3px solid #10b981;
+}
+.storage-backend-option[data-backend="supabase"].active {
+    border-color: #10b981;
+    box-shadow: 0 0 0 1px #10b981, 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+/* Backend name renkleri */
+.storage-backend-name .storage-backend-tag-r2,
+.storage-backend-name .storage-backend-tag-supabase,
+.storage-backend-name .storage-backend-tag-local {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border: 1px solid transparent;
+}
+.storage-backend-name .storage-backend-tag-r2 {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.28);
+}
+.storage-backend-name .storage-backend-tag-supabase {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.28);
+}
+.storage-backend-name .storage-backend-tag-local {
+    color: var(--color-text-muted);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--color-border);
+}
+
+/* =========================================================================
+   Storage Kota/Kullanım Barı (kart içi — backend başına)
+   ========================================================================= */
+.storage-quota-bar-wrap {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.storage-quota-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.75rem;
+}
+.storage-quota-meta-label {
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+.storage-quota-meta-value {
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+}
+.storage-quota-meta-value .storage-quota-pct {
+    color: var(--color-text-muted);
+    font-weight: 500;
+    margin-left: 0.25rem;
+    font-size: 0.7rem;
+}
+.storage-quota-track {
+    height: 6px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.storage-quota-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    background: var(--color-success);
+}
+/* Durum renkleri (data-quota-state) — durum rengi backend rengini geçersiz kılar */
+.storage-quota-fill[data-quota-state="ok"] { background: var(--color-success); }
+.storage-quota-fill[data-quota-state="warn"] { background: var(--color-warning); }
+.storage-quota-fill[data-quota-state="critical"] { background: var(--color-error); }
+.storage-quota-fill[data-quota-state="unknown"] { background: rgba(255, 255, 255, 0.18); }
+/* Sınırsız (kota yok) — tek noktalı çizgi, fill yok */
+.storage-quota-fill[data-quota-state="unlimited"] { background: rgba(255, 255, 255, 0.12); width: 100%; }
+.storage-quota-meta[data-quota-unlimited="1"] .storage-quota-meta-value { color: var(--color-text-muted); }
+
+/* =========================================================================
+   Credential Modal — popup pencere (inline panel yerine)
+   ========================================================================= */
+.storage-cred-modal-box {
+    max-width: 600px;
+    box-shadow: 0 32px 80px -20px rgba(0,0,0,0.65),
+                inset 0 1px 0 0 rgba(255,255,255,0.08),
+                inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+.storage-cred-modal-box.cred-backend-local {
+    border-color: var(--color-border);
+}
+
+/* =========================================================================
+   Modal: Kota Seçici (preset pill'ler + custom GB input)
+   ========================================================================= */
+.storage-quota-field {
+    margin-bottom: 1.25rem;
+    padding-top: 1.1rem;
+    margin-top: 1.1rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.storage-quota-field-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+}
+.storage-quota-field-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    line-height: 1.4;
+}
+.storage-quota-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.storage-quota-preset {
+    position: relative;
+    cursor: pointer;
+}
+.storage-quota-preset input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.storage-quota-preset span {
+    display: inline-block;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    background: var(--color-surface);
+    transition: all 0.15s ease;
+    user-select: none;
+}
+.storage-quota-preset:hover span {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--color-surface-hover);
+}
+/* Seçili preset — :has(input:checked) (modern tarayıcılar) */
+.storage-quota-preset:has(input:checked) span {
+    border-color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.12);
+    color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 16px rgba(var(--color-primary-rgb), 0.18);
+}
+.storage-quota-custom-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+    cursor: pointer;
+}
+.storage-quota-custom-toggle input[type="radio"] {
+    accent-color: var(--color-primary);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+.storage-quota-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    transition: opacity 0.15s ease;
+}
+.storage-quota-custom-row[data-disabled="1"] {
+    opacity: 0.45;
+    pointer-events: none;
+}
+.storage-quota-custom-input {
+    width: 110px;
+}
+.storage-quota-custom-unit {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    font-weight: 600;
+}
+
+/* Modal içi form alanları — text-align center'ı kapat */
+.storage-cred-modal-box .preview-content {
+    text-align: left;
+}
+
+.storage-cred-modal-hint {
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+    padding: 0.7rem 0.9rem 0.7rem 1.8rem;
+    background: rgba(var(--color-primary-rgb), 0.04);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.12);
+    position: relative;
+}
+.storage-cred-modal-hint::before {
+    content: 'i';
+    position: absolute;
+    left: 0.6rem;
+    top: 0.62rem;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.12);
+    border-radius: 50%;
+}
+
+.storage-cred-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-border);
+    justify-content: space-between;
+}
+.storage-cred-modal-actions .btn-primary { margin-right: auto; }
+
+/* Preview Panel — Modal Overlay */
+.preview-panel {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+/* hidden class'ı preview-panel'i gizle */
+.preview-panel.hidden {
+    display: none !important;
+}
+
+.preview-panel .preview-modal-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 820px;
+    max-height: 90vh;
+    /* overflow-y box'ta DEĞİL — content alanı scroll eder.
+       Box'ın kendi scroll'u flexbox min-height sorunu yaratıyordu
+       (img preview ekranın dışına taşıyordu). */
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.preview-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.preview-modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: calc(100% - 3rem);
+}
+
+.preview-close-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.preview-close-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--color-text-main);
+}
+
+.preview-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.preview-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    /* min-height: 0 — flexbox overflow hack'i.
+       Bu olmadan flex item içeriğin boyutu kadar büyür,
+       overflow:auto çalışmaz ve img modal'ın dışına taşar. */
+    min-height: 0;
+    box-sizing: border-box;
+    word-break: break-word;
+}
+
+/* <a> wrapper (resme tıkla → tam çözünürlük) inline ise max-width:100%
+   img'de dairesel referansa düşer (a'nın genişliği = img'nin doğal genişliği).
+   Bu yüzden <a>'yı inline-block + max-width:100% ile sınırlıyoruz. */
+.preview-content a:has(img),
+.preview-content a.preview-img-link {
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+}
+
+.preview-content img {
+    /* Konteyner içinde kesin sığma — taşma olmasın. */
+    max-width: 100%;
+    max-height: 60vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+    display: block;
+    margin: 0 auto;
+}
+
+.preview-content video {
+    max-width: 100%;
+    max-height: 55vh;
+    border-radius: var(--radius-sm);
+}
+
+.preview-content pre {
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    text-align: left;
+    margin: 0;
+}
+

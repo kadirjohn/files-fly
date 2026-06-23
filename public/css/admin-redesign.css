@@ -1,0 +1,194 @@
+/* =========================================================================
+   ADMIN SETTINGS — PROFESSIONAL REDESIGN LAYER
+   Settings layout (sidebar + panels), storage backend cards, credential
+   modal, general-settings form grouping. Richer hierarchy & depth.
+   ========================================================================= */
+
+/* --- Settings container: framed card-like panel content --- */
+.settings-content {
+    background: rgba(255,255,255,0.015);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.03);
+}
+[data-theme="light"] .settings-content {
+    background: rgba(255,255,255,0.5);
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.8);
+}
+
+/* Panel header — prominent section title with description support */
+.settings-panel .settings-section-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+    text-transform: none;
+    letter-spacing: -0.01em;
+    margin-bottom: 0.4rem;
+}
+.settings-panel .settings-section-title::before {
+    width: 4px;
+    height: 18px;
+    border-radius: 2px;
+}
+.settings-panel > .text-muted.text-sm {
+    color: var(--color-text-muted);
+    line-height: 1.5;
+    margin-bottom: 1.25rem !important;
+}
+
+/* --- General settings: group form rows into labeled clusters --- */
+.settings-panel[data-settings-panel="general"] .form-group {
+    padding: 0.85rem 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: 0.65rem;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.03);
+}
+.settings-panel[data-settings-panel="general"] .form-group:hover {
+    border-color: rgba(255,255,255,0.1);
+}
+.settings-panel[data-settings-panel="general"] .form-group .form-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-dark);
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.settings-panel[data-settings-panel="general"] .form-group .form-label::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+.settings-panel[data-settings-panel="general"] .form-input {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+.settings-panel[data-settings-panel="general"] .text-xs.text-muted {
+    display: inline-block;
+    margin-top: 0.4rem;
+    font-size: 0.7rem;
+}
+
+/* --- Storage backend list: tighter, premium cards --- */
+.storage-backend-list { gap: 0.75rem; }
+.storage-backend-name {
+    font-size: 0.95rem;
+    margin-bottom: 0.35rem;
+}
+.storage-backend-desc { line-height: 1.45; }
+.storage-backend-error {
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.22);
+    border-radius: var(--radius-sm);
+    font-size: 0.72rem;
+}
+
+/* Apply button row — elevated */
+.settings-panel #storage-apply-btn { margin-top: 1rem; }
+
+/* --- Settings sidebar: refined active + hover --- */
+.settings-sidebar {
+    gap: 0.3rem;
+    padding: 0.5rem;
+    background: rgba(255,255,255,0.015);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+}
+[data-theme="light"] .settings-sidebar { background: rgba(255,255,255,0.5); }
+.settings-tab-btn {
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.15rem;
+}
+.settings-tab-btn:hover {
+    background: rgba(var(--color-primary-rgb), 0.08);
+    transform: translateX(2px);
+}
+.settings-tab-btn.active {
+    box-shadow: inset 3px 0 0 0 var(--color-primary),
+                0 4px 14px -6px rgba(var(--color-primary-rgb), 0.3);
+}
+
+/* --- Credential modal: refined header accent + field polish --- */
+.storage-cred-modal-box .preview-modal-header {
+    padding: 1.1rem 1.5rem;
+    background: linear-gradient(180deg, rgba(var(--color-primary-rgb), 0.06), transparent);
+}
+.storage-cred-modal-box .preview-modal-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.storage-cred-modal-box .preview-modal-title svg {
+    color: var(--color-primary);
+}
+.storage-cred-modal-box .preview-content {
+    padding: 1.5rem;
+}
+.storage-cred-field { margin-bottom: 1.1rem; }
+.storage-cred-field .form-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-dark);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+.storage-cred-input-row .form-input {
+    font-variant-numeric: tabular-nums;
+}
+.storage-secret-toggle {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color var(--transition-fast), color var(--transition-fast);
+}
+.storage-secret-toggle:hover { transform: scale(1.06); }
+.storage-secret-toggle:active { transform: scale(0.94); }
+
+/* "Ayarlandı" badge — refined pill */
+.storage-cred-set-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.55rem;
+    background: rgba(var(--color-success-rgb), 0.12);
+    color: var(--color-success);
+    border: 1px solid rgba(var(--color-success-rgb), 0.3);
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* --- Audit log panel: card-style entries --- */
+.settings-panel[data-settings-panel="audit"] .admin-table {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+.settings-panel[data-settings-panel="audit"] .admin-table thead th {
+    background: rgba(255,255,255,0.02);
+}
+
+/* --- Mobile: settings panels stack cleanly --- */
+@media (max-width: 768px) {
+    .settings-content { padding: 1rem; }
+    .settings-panel[data-settings-panel="general"] .form-group { padding: 0.75rem 0.85rem; }
+    .storage-cred-modal-box .preview-content { padding: 1.1rem; }
+}

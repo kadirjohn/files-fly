@@ -1,0 +1,366 @@
+:root {
+    /* Font Stack */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-display: 'Outfit', var(--font-sans);
+
+    /* Dark Theme Palette */
+    --color-bg: #0A0A0A;
+    --color-surface: rgba(24, 24, 24, 0.65);
+    --color-surface-hover: rgba(36, 36, 36, 0.8);
+    --color-border: rgba(255, 255, 255, 0.06);
+    --color-border-active: rgba(245, 158, 11, 0.5);
+
+    /* Ana Renkler: Turuncu → Altın → Sarı */
+    --color-primary: #f59e0b;
+    --color-primary-hover: #d97706;
+    --color-primary-rgb: 245, 158, 11;
+    --color-secondary: #fbbf24;
+    --color-accent: #fcd34d;
+
+    /* Metin Renkleri */
+    --color-text-main: #f5f5f5;
+    --color-text-muted: #a3a3a3;
+    --color-text-dark: #737373;
+
+    /* Durum Renkleri */
+    --color-success: #10b981;
+    --color-success-rgb: 16, 185, 129;
+    --color-error: #ef4444;
+    --color-warning: #f59e0b;
+    --color-upload: #3b82f6;
+    --color-upload-rgb: 59, 130, 246;
+
+    /* Gradients */
+    --grad-primary: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+    --grad-upload: linear-gradient(90deg, #3b82f6, #6366f1);
+    --grad-success: linear-gradient(135deg, #10b981, #34d399);
+    --grad-glow: radial-gradient(circle, rgba(245,158,11,0.12) 0%, rgba(251,191,36,0.04) 50%, transparent 100%);
+
+    /* Shadows — muted glow for professional look */
+    --shadow-sm: 0 2px 6px rgba(0,0,0,0.35);
+    --shadow-md: 0 6px 24px rgba(0,0,0,0.45);
+    --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
+    --shadow-glow: 0 0 16px rgba(245,158,11,0.12);
+    --shadow-glow-upload: 0 0 12px rgba(59,130,246,0.2);
+    --shadow-glow-success: 0 0 12px rgba(16,185,129,0.18);
+
+    /* Radius */
+    --radius-sm: 8px;
+    --radius-md: 16px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+
+    /* Transitions */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* -------------------------------------------------------------------------
+   Light Theme
+   ------------------------------------------------------------------------- */
+[data-theme="light"] {
+    --color-bg: #f8f9fa;
+    --color-surface: rgba(255, 255, 255, 0.85);
+    --color-surface-hover: rgba(255, 255, 255, 0.95);
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-border-active: rgba(245, 158, 11, 0.6);
+
+    --color-text-main: #1a1a2e;
+    --color-text-muted: #6b7280;
+    --color-text-dark: #9ca3af;
+
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-md: 0 8px 24px rgba(0,0,0,0.1);
+    --shadow-lg: 0 16px 40px rgba(0,0,0,0.12);
+    --shadow-glow: 0 0 24px rgba(245,158,11,0.15);
+    --shadow-glow-upload: 0 0 16px rgba(59,130,246,0.2);
+    --shadow-glow-success: 0 0 16px rgba(16,185,129,0.2);
+
+    --grad-glow: radial-gradient(circle, rgba(245,158,11,0.06) 0%, rgba(251,191,36,0.02) 50%, transparent 100%);
+}
+
+[data-theme="light"] .glass-card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+[data-theme="light"] .form-input,
+[data-theme="light"] .form-select {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .form-input:focus,
+[data-theme="light"] .form-select:focus {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .drop-zone:hover,
+[data-theme="light"] .drop-zone.drag-over {
+    background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+[data-theme="light"] .file-preview {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .link-box {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .progress-bar {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .admin-table tr:hover td {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .preview-content pre {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .btn-primary {
+    color: #fff;
+}
+
+[data-theme="light"] .btn-ghost:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* -------------------------------------------------------------------------
+   Theme Toggle Button
+   ------------------------------------------------------------------------- */
+.theme-toggle {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.6rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+}
+.theme-toggle:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border-active);
+    color: var(--color-text-main);
+}
+
+/* -------------------------------------------------------------------------
+   Language Switcher
+   ------------------------------------------------------------------------- */
+.lang-switcher {
+    display: flex;
+    gap: 0.25rem;
+}
+.lang-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+}
+.lang-btn:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+.lang-btn.active {
+    color: var(--color-primary);
+    border-color: var(--color-border-active);
+    background: rgba(var(--color-primary-rgb), 0.1);
+}
+
+/* -------------------------------------------------------------------------
+   Skip Link (a11y)
+   ------------------------------------------------------------------------- */
+.skip-link {
+    position: absolute;
+    top: -100px;
+    left: 1rem;
+    z-index: 9999;
+    padding: 0.75rem 1.5rem;
+    background: var(--color-primary);
+    color: #000;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: top 0.2s ease;
+}
+.skip-link:focus {
+    top: 1rem;
+}
+
+/* -------------------------------------------------------------------------
+   Email Share Button
+   ------------------------------------------------------------------------- */
+.email-share-box {
+    margin-top: 0.75rem;
+    text-align: center;
+}
+
+/* -------------------------------------------------------------------------
+   Live Countdown (success page)
+   ------------------------------------------------------------------------- */
+.live-countdown {
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+/* -------------------------------------------------------------------------
+   Reset & Base
+   ------------------------------------------------------------------------- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Arka plan glow efekti */
+body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: var(--grad-glow);
+    pointer-events: none;
+    z-index: 0;
+}
+
+a {
+    color: var(--color-primary);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+a:hover {
+    color: var(--color-secondary);
+}
+
+/* -------------------------------------------------------------------------
+   Typography
+   ------------------------------------------------------------------------- */
+h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
+/* -------------------------------------------------------------------------
+   Layout — Container
+   ------------------------------------------------------------------------- */
+.container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+/* -------------------------------------------------------------------------
+   Header / Nav
+   ------------------------------------------------------------------------- */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    position: relative;
+    z-index: 2;
+}
+
+.app-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+}
+
+.app-logo svg {
+    width: 32px;
+    height: 32px;
+}
+
+/* PNG logo image */
+.app-logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    border-radius: 6px;
+    display: block;
+    flex-shrink: 0;
+}
+
+.app-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.app-nav a {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+.app-nav a:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+}
+
+/* -------------------------------------------------------------------------
+   Glass Card
+   ------------------------------------------------------------------------- */
+.glass-card {
+    background: var(--color-surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    box-shadow: var(--shadow-md);
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.glass-card:hover {
+    border-color: rgba(255,255,255,0.1);
+    box-shadow: var(--shadow-md);
+}
+
+.glass-card.active {
+    border-color: var(--color-border-active);
+    box-shadow: var(--shadow-md);
+}
+

@@ -1,0 +1,378 @@
+/* -------------------------------------------------------------------------
+   File Preview Page (/files/:id)
+   ------------------------------------------------------------------------- */
+
+/* Spinner (yükleniyor durumu) */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-top-color: var(--accent, #6366f1);
+    border-radius: 50%;
+    margin: 0 auto;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Büyük dosya ikonu */
+.file-icon-large {
+    font-size: 4rem;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+}
+
+/* Dosya adı başlığı */
+.file-name {
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-family: 'Outfit', sans-serif;
+    word-break: break-word;
+    margin: 0;
+}
+
+/* Resim önizleme konteyneri */
+.image-preview {
+    margin: 1.5rem 0;
+    text-align: center;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.image-preview img,
+.preview-img {
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+    cursor: zoom-in;
+    display: block;
+    margin: 0 auto;
+}
+
+/* Bilgi kartları grid */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+}
+
+.info-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    text-align: center;
+    transition: border-color var(--transition-fast);
+}
+
+.info-card:hover {
+    border-color: rgba(255,255,255,0.1);
+}
+
+[data-theme="light"] .info-card {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.info-label {
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.35rem;
+}
+
+.info-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+/* Info card with inline badge — center the badge */
+.info-card-size .info-value,
+.info-card-expire .info-value {
+    display: flex;
+    justify-content: center;
+}
+
+.info-card-size .info-value .meta-badge,
+.info-card-expire .info-value .meta-badge {
+    display: inline-flex;
+}
+
+/* Uyarı kutusu (süre dolmuş / parola korumalı) */
+.warning-box {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+    color: #fbbf24;
+}
+
+.warning-box code {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+/* Büyük buton (indirme) */
+.btn-lg {
+    padding: 0.875rem 2rem;
+    font-size: 1.0625rem;
+    font-weight: 600;
+}
+
+@media (max-width: 600px) {
+    .file-name {
+        font-size: 1.25rem;
+    }
+    .file-icon-large {
+        font-size: 3rem;
+    }
+    .info-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* =========================================================================
+   Parola Gate Modal (şifreli dosyalar — file.html & admin.html)
+   .preview-panel overlay'i yeniden kullanır; içeriği password-gate-box.
+   ========================================================================= */
+
+.password-gate-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    padding: 1.75rem 1.5rem;
+    box-sizing: border-box;
+}
+
+.password-gate-icon-wrap {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+}
+
+.password-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.password-input-row .form-input {
+    flex: 1;
+}
+
+/* Dosya önizleme sayfasında "Parola korumalı" rozeti */
+.encrypted-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin: 0 auto 1rem;
+}
+
+/* Admin dosya listesinde şifreli dosya kilit rozeti */
+.encrypted-lock-badge {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    color: #fbbf24;
+    margin-left: 0.25rem;
+}
+
+.encrypted-lock-badge svg {
+    vertical-align: middle;
+}
+
+/* Parola gate içindeki progress bar — app.js'deki .progress-bar ile uyumlu */
+.password-gate-box .progress-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.password-gate-box .progress-fill {
+    height: 100%;
+    background: var(--color-primary, #6366f1);
+    transition: width 0.3s ease;
+}
+
+@media (max-width: 480px) {
+    .password-gate-box {
+        padding: 1.25rem 1rem;
+    }
+}
+
+/* =========================================================================
+   Session Page — Files Fly Logo Block (above file list card)
+   ========================================================================= */
+.session-logo-block {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.25rem;
+}
+
+.session-page-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    border-radius: 12px;
+    opacity: 0.85;
+}
+
+/* =========================================================================
+   Password Toggle — Always-visible input (disabled until radio checked)
+   ========================================================================= */
+
+/* Container: expire select + password toggle side by side */
+.upload-options-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1.25rem;
+}
+
+.upload-options-row .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+@media (max-width: 600px) {
+    .upload-options-row {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+}
+
+/* Password always-visible container */
+.password-field-always {
+    position: relative;
+    margin-top: 0.5rem;
+}
+
+.password-field-always .form-input {
+    width: 100%;
+    transition: all var(--transition-fast);
+}
+
+/* Locked state: input looks greyed/disabled */
+.password-field-always .form-input[readonly] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    border-color: var(--color-border);
+    background: rgba(255,255,255,0.02);
+}
+
+/* Unlocked state: normal active look */
+.password-field-always .form-input:not([readonly]) {
+    opacity: 1;
+    cursor: text;
+    border-color: var(--color-border-active);
+}
+
+/* Lock icon overlay (always visible, dimmed when locked) */
+.password-lock-icon {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-dark);
+    pointer-events: none;
+    transition: color var(--transition-fast), opacity var(--transition-fast);
+    opacity: 0.5;
+    display: flex;
+    align-items: center;
+}
+
+.password-field-always .form-input:not([readonly]) ~ .password-lock-icon {
+    color: var(--color-primary);
+    opacity: 0.8;
+}
+
+/* Checkbox label for password protection */
+.password-toggle-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    margin-bottom: 0.35rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    user-select: none;
+}
+
+.password-toggle-label-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+/* =========================================================================
+   File info-card enhanced typography
+   ========================================================================= */
+.info-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--color-text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+}
+
+.info-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    word-break: break-word;
+    color: var(--color-text-main);
+}
+
+/* =========================================================================
+   ml-1 utility
+   ========================================================================= */
+.ml-1 { margin-left: 0.5rem; }
+
+/* =========================================================================
+   Home Page Logo (above "Dosya Paylaş" title)
+   ========================================================================= */
+.home-logo-block {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.home-page-logo {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    border-radius: 14px;
+}
+
