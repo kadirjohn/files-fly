@@ -4,3 +4,4 @@ steps done
 uploads/
 node_modules/
 package-lock.json
+.claude
