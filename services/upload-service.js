@@ -260,15 +260,54 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   }
 
   const file = files[0]; // İlk dosyayı al
-  const expireHours = parseInt(fields.expire) || 1;
-  const password = fields.password || null;
+  const requestedBundleId = fields.bundle_id || null;
+
+  // -----------------------------------------------------------------------
+  // Bundle çözümleme: bu dosya hangi bundle'a katılacak?
+  // - bundle_id verilmişse → mevcut bundle'a katıl (expire/şifreleme bundle'dan
+  //   miras; bundle'ın kalan saati per-file expire_at clamp'i için kullanılır).
+  // - bundle_id yoksa → otomatik bundle oluştur (her dosyanın bir bundle'ı
+  //   olsun → Dosyalarım + /files/:id redirect'leri tek dosya yüklemelerinde de
+  //   çalışsın). Geri uyumluluk için kritik.
+  // effectiveBundleId/bundleSalt/expireHours if/else'in ÖNCESİNDE let ile
+  // bildirilir ki her iki dal da atayabilsin.
+  // -----------------------------------------------------------------------
+  let effectiveBundleId = null;
+  let password = null;
+  let bundleSalt = null;
+  let expireHours;
+
+  if (requestedBundleId) {
+    const { getBundle } = require('./bundle-service');
+    const b = await getBundle(requestedBundleId);
+    if (!b) throw new Error('Bundle not found');
+    if (b.expired) throw new Error('Bundle has expired');
+    effectiveBundleId = requestedBundleId;
+    // expireHours sadece aşağıdaki per-file expire_at için; paylaşım linkinin
+    // süresini bundle'ın kendi expire_at'i yönetir. Kalan saati kullan.
+    const remainingMs = new Date(b.expire_at) - Date.now();
+    expireHours = Math.max(1, Math.round(remainingMs / 3600000));
+    password = b.is_encrypted ? (fields.password || null) : null;
+    bundleSalt = b.password_salt; // bundle ortak salt (legacy'de null olabilir)
+  } else {
+    expireHours = parseInt(fields.expire) || 1;
+    password = fields.password || null;
+    const { createBundle } = require('./bundle-service');
+    const created = await createBundle(sessionId, {
+      expireHours, title: fields.title || null, password,
+    });
+    effectiveBundleId = created.id;
+    bundleSalt = created.passwordSalt;
+  }
 
   // -----------------------------------------------------------------------
   // AES-GCM Parola Koruması (Faz 4.3)
   // -----------------------------------------------------------------------
   const isEncrypted = !!password;
   const encryptionIV = fields.encryption_iv || null;
-  const encryptionSalt = fields.encryption_salt || null;
+  // Şifreli dosya: bundle ortak salt'ı varsa onu kullan (tek parola → tüm dosyalar),
+  // yoksa per-file salt (field'dan) korunur (geri uyumluluk / legacy backfill).
+  const encryptionSalt = isEncrypted ? (bundleSalt || fields.encryption_salt || null) : null;
 
   // -----------------------------------------------------------------------
   // Validasyonlar
@@ -337,13 +376,12 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
   // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
   // (BASE_URL hardcoded ngrok/production'da kırılıyordu; relative path her ortamda çalışır)
   const directUrl = `/api/files/${fileId}/dl`;
-  const previewUrl = `/files/${fileId}`;
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,
                         storage_backend, storage_key, direct_url, expire_at, is_encrypted,
-                        encryption_iv, encryption_salt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        encryption_iv, encryption_salt, bundle_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       fileId,
@@ -359,14 +397,22 @@ async function handleUpload(body, contentType, sessionId, ipHash) {
       isEncrypted,
       encryptionIV,
       encryptionSalt,
+      effectiveBundleId,
     ]
   );
 
   const metadata = result.rows[0];
 
+  // Bundle'ın agregat sayaçlarını güncelle (file_count +1, total_size +file).
+  // INSERT bundle_id'yi zaten set etti; addFileToBundle ek olarak file.bundle_id
+  // UPDATE'i atar (zararsız/idempotent) ve sayaçları bump eder.
+  const { addFileToBundle } = require('./bundle-service');
+  await addFileToBundle(fileId, effectiveBundleId, file.data.length);
+
   return {
     ...metadata,
-    preview_url: previewUrl,
+    bundle_id: effectiveBundleId,
+    preview_url: `/b/${effectiveBundleId}`,
   };
 }
 

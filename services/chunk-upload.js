@@ -193,13 +193,40 @@ async function getChunkStatus(fileId) {
  */
 async function finalizeUpload(fileId, dir, metadata) {
   const { filename, expireHours, sessionId, ipHash, password } = metadata;
+  const requestedBundleId = metadata.bundle_id || null;
+  const isEncrypted = !!password;
 
   // -----------------------------------------------------------------------
-  // AES-GCM Parola Koruması (Faz 4.3)
+  // Bundle çözümleme (upload-service.handleUpload ile birebir aynı mantık):
+  // - bundle_id verilmişse → mevcut bundle'a katıl (expire/şifreleme miras).
+  // - yoksa → otomatik bundle oluştur (her dosyanın bir bundle'ı olsun).
+  // effectiveBundleId/bundleSalt/resolvedExpireHours let ile bildirilir.
   // -----------------------------------------------------------------------
-  const isEncrypted = !!password;
+  let effectiveBundleId = null;
+  let bundleSalt = null;
+  let resolvedExpireHours = expireHours;
+
+  if (requestedBundleId) {
+    const { getBundle } = require('./bundle-service');
+    const b = await getBundle(requestedBundleId);
+    if (!b) throw new Error('Bundle not found');
+    if (b.expired) throw new Error('Bundle has expired');
+    effectiveBundleId = requestedBundleId;
+    bundleSalt = b.password_salt;
+    const remainingMs = new Date(b.expire_at) - Date.now();
+    resolvedExpireHours = Math.max(1, Math.round(remainingMs / 3600000));
+  } else {
+    const { createBundle } = require('./bundle-service');
+    const created = await createBundle(sessionId, {
+      expireHours, title: metadata.title || null, password,
+    });
+    effectiveBundleId = created.id;
+    bundleSalt = created.passwordSalt;
+  }
+
+  // AES-GCM: bundle ortak salt varsa onu kullan, yoksa per-file field salt.
   const encryptionIV = metadata.encryption_iv || null;
-  const encryptionSalt = metadata.encryption_salt || null;
+  const encryptionSalt = isEncrypted ? (bundleSalt || metadata.encryption_salt || null) : null;
   // Orijinal MIME type (şifreleme öncesi)
   const originalMimeType = metadata.mime_type || getMimeType(filename);
 
@@ -220,13 +247,15 @@ async function finalizeUpload(fileId, dir, metadata) {
   // sessizce clamp ediyordu — bu, upload-service.js'nin (reject eden) davranışıyla
   // tutarsızdı ve ayrıca orphan blob bırakma riski taşıyordu. Artık chunk'ları
   // birleştirmeden önce reject ediyoruz: over-max expire → hata + tmp dir temizlik.
+  // Not: requestedBundleId varsa resolvedExpireHours bundle'ın kalan saatidir
+  // (bundle süresi zaten ≤ max_expire olmuştu), clamp yine de güvenli kalır.
   const maxExpireStr = await getConfig('max_expire_hours');
   const maxExpireHours = maxExpireStr ? parseInt(maxExpireStr) : 48;
-  if (expireHours < 1) {
+  if (resolvedExpireHours < 1) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     throw new Error('Expire time must be at least 1 hour');
   }
-  if (expireHours > maxExpireHours) {
+  if (resolvedExpireHours > maxExpireHours) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     throw new Error(`Expire time cannot exceed ${maxExpireHours} hours`);
   }
@@ -320,20 +349,19 @@ async function finalizeUpload(fileId, dir, metadata) {
   }
 
   // -----------------------------------------------------------------------
-  // Metadata'yı PG'ye Yaz (storage_backend + storage_key)
+  // Metadata'yı PG'ye Yaz (storage_backend + storage_key + bundle_id)
   // -----------------------------------------------------------------------
   // Expire kontrolü finalize başında (chunk'ları birleştirmeden önce) yapıldı;
-  // burada expireHours güvenli, clamp'e gerek yok.
-  const expireAt = new Date(Date.now() + (expireHours || 1) * 60 * 60 * 1000).toISOString();
+  // burada resolvedExpireHours güvenli, clamp'e gerek yok.
+  const expireAt = new Date(Date.now() + (resolvedExpireHours || 1) * 60 * 60 * 1000).toISOString();
   // URL'ler relative path olarak saklanır — frontend/indirme kendi host'una göre çözümler.
   const directUrl = `/api/files/${fileId}/dl`;
-  const previewUrl = `/files/${fileId}`;
 
   const result = await query(
     `INSERT INTO files (id, session_id, ip_hash, filename, file_size, mime_type,
                         storage_backend, storage_key, direct_url, expire_at, is_encrypted,
-                        encryption_iv, encryption_salt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        encryption_iv, encryption_salt, bundle_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING id, filename, file_size, mime_type, direct_url, expire_at, is_encrypted, created_at`,
     [
       fileId,
@@ -349,10 +377,15 @@ async function finalizeUpload(fileId, dir, metadata) {
       isEncrypted,
       encryptionIV,
       encryptionSalt,
+      effectiveBundleId,
     ]
   );
 
   const fileMetadata = result.rows[0];
+
+  // Bundle'ın agregat sayaçlarını güncelle (file_count +1, total_size +file).
+  const { addFileToBundle } = require('./bundle-service');
+  await addFileToBundle(fileId, effectiveBundleId, fileSize);
 
   // -----------------------------------------------------------------------
   // Image dosyaları için thumbnail üret (preview için compressed kopya).
@@ -377,7 +410,8 @@ async function finalizeUpload(fileId, dir, metadata) {
   return {
     complete: true,
     ...fileMetadata,
-    preview_url: previewUrl,
+    bundle_id: effectiveBundleId,
+    preview_url: `/b/${effectiveBundleId}`,
   };
 }
 

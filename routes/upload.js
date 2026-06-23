@@ -43,6 +43,7 @@ addRoute('POST', '/api/upload', async (req, res, params, body) => {
       mime_type: result.mime_type,
       direct_url: result.direct_url,
       preview_url: result.preview_url,
+      bundle_id: result.bundle_id,
       expire_at: result.expire_at,
       is_encrypted: result.is_encrypted,
       created_at: result.created_at,
@@ -125,6 +126,8 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
       encryption_iv: fields.encryption_iv || null,
       encryption_salt: fields.encryption_salt || null,
       mime_type: fields.mime_type || null,
+      bundle_id: fields.bundle_id || null,
+      title: fields.title || null,
     };
 
     const result = await receiveChunk(fileId, chunkIndex, totalChunks, chunkFile.data, metadata);
@@ -138,6 +141,7 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
         mime_type: result.mime_type,
         direct_url: result.direct_url,
         preview_url: result.preview_url,
+        bundle_id: result.bundle_id,
         expire_at: result.expire_at,
         is_encrypted: result.is_encrypted,
         created_at: result.created_at,
