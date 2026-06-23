@@ -48,6 +48,18 @@ async function runCleanup() {
 
   try {
     // -----------------------------------------------------------------------
+    // 0. Süresi dolmuş bundle'ları temizle (cascade files rows + blob silme).
+    //    ÖNCE bundle cleanup → per-file sorgusu zaten-silinmiş dosyaları tekrar
+    //    görmez; sadece bundle_id NULL orphan dosyaları yakalar. Bundle'ı olan
+    //    dosyalar bundle.expire_at ile yönetilir (file.expire_at'dan bağımsız).
+    // -----------------------------------------------------------------------
+    const bundleResult = await cleanupExpiredBundles();
+    freedBytes += bundleResult.freedBytes;
+    if (bundleResult.bundles > 0) {
+      console.log(`[Cleanup] Deleted ${bundleResult.bundles} expired bundle(s), ${formatBytes(bundleResult.freedBytes)} freed.`);
+    }
+
+    // -----------------------------------------------------------------------
     // 1. Süresi dolmuş dosyaları PG'den sorgula
     //    storage_backend + storage_key (artık storage_path yok)
     // -----------------------------------------------------------------------
@@ -128,6 +140,74 @@ async function runCleanup() {
     console.error('[Cleanup] Fatal error during cleanup:', err.message);
     return { deleted: deletedCount, freedBytes };
   }
+}
+
+// =========================================================================
+// Bundle Temizliği (Süresi Dolan Bundle'lar)
+// =========================================================================
+
+/**
+ * Süresi dolmuş bundle'ları temizler.
+ *
+ * Bir bundle'ın expire_at'i geçtiyse tüm dosyaları da süresi dolmuş demektir
+ * (file.expire_at, join durumunda bundle'ın kalan saatine ayarlanır ama bundle
+ * paylaşım linkinin süresini bundle.expire_at yönetir). Bu yüzden bundle cleanup,
+ * per-file cleanup'tan AYRI ve ÖNCE çalışır:
+ *
+ *   1. bundle'a ait tüm dosyaların storage object'lerini sil (backend'e göre
+ *      doğru provider → deleteObject) — FK CASCADE satırı siler ama blob'ı SİLMEZ.
+ *   2. Her dosyanın thumbnail cache'ini de temizle (per-file cleanup ile aynı).
+ *   3. Bundle satırını sil → FK ON DELETE CASCADE files satırlarını da kaldırır.
+ *
+ * Per-file cleanup (runCleanup step 1) bundle_id NULL orphan dosyaları için
+ * korunur; bundle'ı olan dosyalar burada yakalandığı için tekrar görülmez.
+ *
+ * @returns {Promise<{bundles: number, freedBytes: number}>}
+ */
+async function cleanupExpiredBundles() {
+  let bundleCount = 0;
+  let freedBytes = 0;
+
+  try {
+    const expired = await query(
+      `SELECT id FROM bundles WHERE expire_at < NOW() ORDER BY expire_at ASC LIMIT 1000`
+    );
+
+    for (const b of expired.rows) {
+      try {
+        // Bu bundle'ın dosyalarının storage object'lerini sil (cascade blob'ı silmez).
+        const files = await query(
+          `SELECT id, storage_backend, storage_key, file_size FROM files WHERE bundle_id = $1`,
+          [b.id]
+        );
+
+        for (const f of files.rows) {
+          try {
+            if (f.storage_key) {
+              const provider = await storage.getProviderForFile(f);
+              await provider.deleteObject(f.storage_key);
+              freedBytes += parseInt(f.file_size) || 0;
+            }
+          } catch (delErr) {
+            console.error(`[Cleanup] bundle ${b.id} file ${f.id} delete err:`, delErr.message);
+            // Nesne silinmese bile devam et — bundle satırı silinir, orphan blob loglanır.
+          }
+          // Thumbnail cache'ini de temizle (image dosyaları, her zaman local).
+          try { await deleteThumb(f.id); } catch { /* thumbnail yoksa kritik değil */ }
+        }
+
+        // Bundle satırını sil → FK ON DELETE CASCADE files satırlarını kaldırır.
+        await query(`DELETE FROM bundles WHERE id = $1`, [b.id]);
+        bundleCount++;
+      } catch (err) {
+        console.error(`[Cleanup] Error deleting bundle ${b.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[Cleanup] Fatal error during bundle cleanup:', err.message);
+  }
+
+  return { bundles: bundleCount, freedBytes };
 }
 
 // =========================================================================
@@ -301,6 +381,7 @@ function formatBytes(bytes) {
 
 module.exports = {
   runCleanup,
+  cleanupExpiredBundles,
   startCleanupJob,
   stopCleanupJob,
   migrateFlatThumbs,
