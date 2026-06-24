@@ -4,11 +4,17 @@
  * POST /api/upload        — Tek seferde dosya yükleme
  * POST /api/upload/chunk  — Chunked upload
  * GET  /api/upload/chunk/:id/status — Chunk status (resume)
+ * GET  /api/upload/progress/:id — R2 finalize upload progress (honest % poll)
+ * POST /api/upload/abort/:id    — Upload iptali (backend tmp temizlik + finalize durdur)
  */
 
+const fs = require('fs');
 const { addRoute, sendJSON, sendError } = require('../server');
 const { handleUpload } = require('../services/upload-service');
-const { receiveChunk, getChunkStatus } = require('../services/chunk-upload');
+const {
+  receiveChunk, getChunkStatus,
+  getUploadProgress, markAborted, isAborted, clearAborted, chunkDir,
+} = require('../services/chunk-upload');
 const { getHashedClientIP } = require('../services/ip-service');
 
 // =========================================================================
@@ -188,5 +194,66 @@ addRoute('GET', '/api/upload/chunk/:id/status', async (req, res, params, body) =
   } catch (err) {
     console.error('[Upload] Chunk status error:', err.message);
     sendError(res, 500, 'Failed to get chunk status');
+  }
+});
+
+// =========================================================================
+// GET /api/upload/progress/:id — R2 Finalize Upload Progress (honest % poll)
+// =========================================================================
+// Chunk'lar localhost'a hızlı ulaşır (anında %96 sıçrama) ama dosyanın R2'ye
+// yazımı (gerçek internet hızı) backend'de gizlidir. İstemci son chunk finalize
+// beklerken bu endpoint'i poll eder → R2'ye yazılan byte honest progress verir.
+// Store: { loaded, total, phase: 'assembling'|'uploading'|'done'|'aborted', pct }
+addRoute('GET', '/api/upload/progress/:id', async (req, res, params, body) => {
+  try {
+    const p = getUploadProgress(params.id);
+    if (!p) {
+      // Store yok: ya henüz finalize başlamadı (chunk'lar geliyor) ya da bitti/silindi.
+      sendJSON(res, 200, { active: false, loaded: 0, total: 0, pct: 0, phase: 'idle' });
+      return;
+    }
+    sendJSON(res, 200, {
+      active: p.phase === 'assembling' || p.phase === 'uploading',
+      loaded: p.loaded || 0,
+      total: p.total || 0,
+      pct: p.pct || 0,
+      phase: p.phase,
+    });
+  } catch (err) {
+    console.error('[Upload] Progress error:', err.message);
+    sendError(res, 500, 'Failed to get progress');
+  }
+});
+
+// =========================================================================
+// POST /api/upload/abort/:id — Upload İptali (backend durdurma)
+// =========================================================================
+// İstemci cancel: xhr abort yetmez — backend chunk'ı disk'e yazdıysa ve son
+// chunk'sa finalizeUpload → R2 upload arkaplanda devam eder. Bu endpoint:
+//  1. markAborted(fileId) → receiveChunk reddeder, finalizeUpload readStream.destroy.
+//  2. tmp chunk dir temizle (orphan chunk önle).
+// Pause için KULLANILMAZ (pause'da server tmp kalsın, resume getChunkStatus ile).
+addRoute('POST', '/api/upload/abort/:id', async (req, res, params, body) => {
+  try {
+    const fileId = params.id;
+    if (!fileId) return sendError(res, 400, 'fileId required');
+    markAborted(fileId);
+    console.log(`[Upload] Abort requested fileId=${fileId.slice(0, 8)}`);
+    // tmp chunk dir temizle (varsa). finalize zaten markAborted kontrol edip durur.
+    try {
+      const dir = chunkDir(fileId);
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        console.log(`[Upload] Aborted — tmp cleaned fileId=${fileId.slice(0, 8)}`);
+      }
+    } catch (err) {
+      console.error(`[Upload] Aborted tmp clean error fileId=${fileId.slice(0, 8)}:`, err.message);
+    }
+    // 30sn sonra abort bayrağını temizle (aynı fileId tekrar kullanılmaz ama güvenlik).
+    setTimeout(() => clearAborted(fileId), 30000);
+    sendJSON(res, 200, { aborted: true });
+  } catch (err) {
+    console.error('[Upload] Abort error:', err.message);
+    sendError(res, 500, 'Failed to abort upload');
   }
 });

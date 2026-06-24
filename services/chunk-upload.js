@@ -38,6 +38,41 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT ||
 
 const TMP_DIR = process.env.CHUNK_TMP_DIR || path.join(process.env.UPLOADS_DIR || '/data/uploads', 'tmp');
 
+// =========================================================================
+// In-Memory Progress + Abort Store (finalize R2 upload progress'i istemciye
+// poll etmek + pause/cancel'de backend'i durdurmak için)
+// =========================================================================
+// uploadProgressStore: fileId -> { loaded, total, phase, pct, updatedAt }
+//   phase: 'assembling' | 'uploading' | 'done' | 'aborted'
+//   İstemci GET /api/upload/progress/:fileId ile poll eder → honest R2 progress.
+const uploadProgressStore = new Map();
+// abortedFiles: fileId Set — cancel edilen upload'lar. receiveChunk başında kontrol,
+// finalizeUpload R2 upload'ını durdurur. tmp dir temizlenir.
+const abortedFiles = new Set();
+
+function setUploadProgress(fileId, data) {
+  const cur = uploadProgressStore.get(fileId) || {};
+  const next = Object.assign(cur, data, { updatedAt: Date.now() });
+  next.pct = next.total ? Math.min(100, Math.round((next.loaded / next.total) * 100)) : (next.pct || 0);
+  uploadProgressStore.set(fileId, next);
+}
+function getUploadProgress(fileId) {
+  return uploadProgressStore.get(fileId) || null;
+}
+function clearUploadProgress(fileId) {
+  uploadProgressStore.delete(fileId);
+}
+function isAborted(fileId) {
+  return abortedFiles.has(fileId);
+}
+function markAborted(fileId) {
+  abortedFiles.add(fileId);
+  setUploadProgress(fileId, { phase: 'aborted', loaded: 0, total: 0, pct: 0 });
+}
+function clearAborted(fileId) {
+  abortedFiles.delete(fileId);
+}
+
 /**
  * Geçici chunk dizininin var olduğundan emin olur.
  */
@@ -76,6 +111,12 @@ function chunkDir(fileId) {
  * @returns {Promise<Object>} - { chunk_index, complete } veya { complete: true, id, filename, ... }
  */
 async function receiveChunk(fileId, chunkIndex, totalChunks, chunkData, metadata) {
+  // --- Abort kontrolü: cancel edilen upload'ın chunk'larını reddet ---
+  if (isAborted(fileId)) {
+    console.log(`[ChunkUpload] REJECT chunk ${chunkIndex}/${totalChunks} — fileId ${fileId} aborted`);
+    throw new Error('Upload aborted');
+  }
+
   await ensureTmpDir();
 
   const dir = chunkDir(fileId);
@@ -101,8 +142,10 @@ async function receiveChunk(fileId, chunkIndex, totalChunks, chunkData, metadata
   // -----------------------------------------------------------------------
   // Chunk'ı diske yaz
   // -----------------------------------------------------------------------
+  const tWrite = Date.now();
   const chunkPath = path.join(dir, `chunk_${chunkIndex}`);
   await fs.promises.writeFile(chunkPath, chunkData);
+  console.log(`[ChunkUpload] chunk ${chunkIndex + 1}/${totalChunks} received fileId=${fileId.slice(0, 8)} size=${chunkData.length} writeMs=${Date.now() - tWrite}`);
 
   // -----------------------------------------------------------------------
   // Tüm chunk'lar tamamlandı mı?
@@ -111,6 +154,12 @@ async function receiveChunk(fileId, chunkIndex, totalChunks, chunkData, metadata
 
   if (receivedChunks >= totalChunks) {
     // Tüm chunk'lar alındı → birleştir ve metadata kaydet
+    console.log(`[ChunkUpload] all ${totalChunks} chunks received — finalizing fileId=${fileId.slice(0, 8)}`);
+    // Abort kontrolü (finalize öncesi — cancel finalize başlamadan yetişebilir)
+    if (isAborted(fileId)) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+      throw new Error('Upload aborted');
+    }
     const result = await finalizeUpload(fileId, dir, metadata);
     return result;
   }
@@ -279,9 +328,18 @@ async function finalizeUpload(fileId, dir, metadata) {
     // provider'a path üzerinden yüklemek yerine, direkt local dosya yazımı
     // yapmak daha verimli. Bu yüzden local provider'ın uploadsDir'ine yaz.)
     const targetPath = path.join(provider.uploadsDir, storageKey);
+    setUploadProgress(fileId, { phase: 'assembling', loaded: 0, total: 0, pct: 0 });
+    const tAssemble = Date.now();
     const writeStream = fs.createWriteStream(targetPath);
 
     for (let i = 0; i < metadata.totalChunks; i++) {
+      // Abort kontrolü — local yazım sırasında cancel.
+      if (isAborted(fileId)) {
+        writeStream.destroy();
+        try { fs.unlinkSync(targetPath); } catch { /* ignore */ }
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+        throw new Error('Upload aborted');
+      }
       const chunkPath = path.join(dir, `chunk_${i}`);
       if (!fs.existsSync(chunkPath)) {
         writeStream.destroy();
@@ -296,11 +354,16 @@ async function finalizeUpload(fileId, dir, metadata) {
     await new Promise((resolve, reject) => {
       writeStream.end((err) => err ? reject(err) : resolve());
     });
+    // Local: yazım bitince tamamı "R2'ye yazıldı" sayılır (yazılım disk'te, anlık).
+    setUploadProgress(fileId, { phase: 'done', loaded: totalBytes, total: totalBytes, pct: 100 });
+    console.log(`[ChunkUpload] local write done fileId=${fileId.slice(0, 8)} totalBytes=${totalBytes} assembleMs=${Date.now() - tAssemble}`);
   } else {
     // Cloud: önce chunk'ları geçici birleştirme dosyasında topla, sonra
     // bucket'a stream ile putObject. (ReadStream, provider.putObject
     // S3-uyumlu provider'da lib-storage Upload ile multipart yükler.)
     const assembledTmpPath = path.join(dir, '_assembled');
+    setUploadProgress(fileId, { phase: 'assembling', loaded: 0, total: 0, pct: 0 });
+    const tAssemble = Date.now();
     const writeStream = fs.createWriteStream(assembledTmpPath);
 
     for (let i = 0; i < metadata.totalChunks; i++) {
@@ -317,11 +380,48 @@ async function finalizeUpload(fileId, dir, metadata) {
     await new Promise((resolve, reject) => {
       writeStream.end((err) => err ? reject(err) : resolve());
     });
+    console.log(`[ChunkUpload] assembled fileId=${fileId.slice(0, 8)} totalBytes=${totalBytes} assembleMs=${Date.now() - tAssemble} backend=${storageBackend}`);
 
-    // Stream ile bucket'a yükle (s3-base tek parça/multipart kararını verir)
+    // Abort kontrolü — assemble bitti, R2 upload başlamadan cancel yetişebilir.
+    if (isAborted(fileId)) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+      throw new Error('Upload aborted');
+    }
+
+    // Stream ile bucket'a yükle (s3-base tek parça/multipart kararını verir).
+    // onProgress: AWS lib-storage httpUploadProgress → R2'ye yazılan byte. İstemci
+    // GET /api/upload/progress/:fileId ile poll eder → honest progress (R2 yazılımı).
     const readStream = fs.createReadStream(assembledTmpPath);
+    setUploadProgress(fileId, { phase: 'uploading', loaded: 0, total: totalBytes, pct: 0 });
+    const tR2 = Date.now();
+    let lastLoggedPct = -1;
     try {
-      await provider.putObject(storageKey, readStream, { contentType: mimeType });
+      await provider.putObject(storageKey, readStream, {
+        contentType: mimeType,
+        contentLength: totalBytes,
+        onProgress: (loaded, total) => {
+          if (isAborted(fileId)) {
+            // Abort → readStream'i destroy et, lib-storage upload durur.
+            try { readStream.destroy(); } catch { /* ignore */ }
+            return;
+          }
+          setUploadProgress(fileId, { loaded: loaded || 0, total: total || totalBytes });
+          const pct = total ? Math.round((loaded / total) * 100) : 0;
+          // Her %5'te bir log (spam önle) + ilk/son.
+          if (pct >= lastLoggedPct + 5 || pct === 100) {
+            console.log(`[ChunkUpload] R2 progress fileId=${fileId.slice(0, 8)} ${loaded}/${total} (${pct}%)`);
+            lastLoggedPct = pct;
+          }
+        },
+      });
+      setUploadProgress(fileId, { phase: 'done', loaded: totalBytes, total: totalBytes, pct: 100 });
+      console.log(`[ChunkUpload] R2 upload done fileId=${fileId.slice(0, 8)} r2Ms=${Date.now() - tR2}`);
+    } catch (err) {
+      if (isAborted(fileId)) {
+        console.log(`[ChunkUpload] R2 upload aborted fileId=${fileId.slice(0, 8)}`);
+        throw new Error('Upload aborted');
+      }
+      throw err;
     } finally {
       readStream.destroy();
       try { await fs.promises.unlink(assembledTmpPath); } catch { /* ignore */ }
@@ -407,6 +507,13 @@ async function finalizeUpload(fileId, dir, metadata) {
     console.error(`[ChunkUpload] Error cleaning tmp dir ${dir}:`, err.message);
   }
 
+  // Finalize başarılı → progress/abort store temizle (poll artık done dönmüş olabilir,
+  // kısa süre sonra sil — istemci son poll'u yakalasın diye hemen silme yerine done bırak).
+  clearAborted(fileId);
+  setUploadProgress(fileId, { phase: 'done', loaded: fileSize, total: fileSize, pct: 100 });
+  // 30sn sonra store'tan tam temizle (memory sızıntı önle).
+  setTimeout(() => clearUploadProgress(fileId), 30000);
+
   return {
     complete: true,
     ...fileMetadata,
@@ -456,4 +563,12 @@ function getCurrentTotalSize(dir) {
 module.exports = {
   receiveChunk,
   getChunkStatus,
+  // R2 upload progress poll (istemci honest progress için)
+  getUploadProgress,
+  // Pause/cancel backend durdurma
+  markAborted,
+  isAborted,
+  clearAborted,
+  // tmp chunk dir temizlik (abort endpoint)
+  chunkDir,
 };

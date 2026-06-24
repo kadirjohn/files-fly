@@ -109,10 +109,13 @@ class S3BaseStorageProvider {
    * Dosyayı bucket'a yükler. Buffer veya stream kabul eder.
    * @param {string} key
    * @param {Buffer|NodeJS.ReadableStream} data
-   * @param {{ contentType?: string, contentLength?: number }} opts
+   * @param {{ contentType?: string, contentLength?: number, onProgress?: (loaded:number, total:number)=>void }} opts
+   *   onProgress: R2'ye gerçekten yazılan byte'ı bildirir (AWS lib-storage
+   *   httpUploadProgress event'i). İstemci honest progress için bunu poll eder.
    */
   async putObject(key, data, opts = {}) {
     const contentType = opts.contentType || 'application/octet-stream';
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
 
     if (Buffer.isBuffer(data)) {
       const command = new PutObjectCommandCtor({
@@ -123,6 +126,8 @@ class S3BaseStorageProvider {
         ContentLength: data.length,
       });
       await this.client.send(command);
+      // Buffer yolu: tek PutObject — gönderim bitince tamamı yazıldı.
+      if (onProgress) onProgress(data.length, data.length);
       return;
     }
 
@@ -140,12 +145,17 @@ class S3BaseStorageProvider {
           ContentLength: opts.contentLength,
         });
         await this.client.send(command);
+        // Tek parça: gönderim bitince tamamı yazıldı.
+        if (onProgress) onProgress(opts.contentLength, opts.contentLength);
         return;
       }
 
       // Büyük dosyalar: multipart upload. Supabase free tier'da 5 MB part size
       // ve sıralı (queueSize: 1) gönderim daha güvenlidir; paralel part gönderim
       // "upload does not exist" hatasına yol açabiliyor.
+      // total: stream boyutu bilinmediğinden contentLength'ten (varsa) ya da ilk
+      // progress event'inden gelen total'den alınır.
+      let knownTotal = (opts.contentLength && Number.isFinite(opts.contentLength)) ? opts.contentLength : 0;
       const upload = new UploadClass({
         client: this.client,
         params: {
@@ -157,7 +167,24 @@ class S3BaseStorageProvider {
         queueSize: 1,
         partSize: S5MB, // 5 MB part
       });
+
+      // httpUploadProgress: R2'ye her part yazıldıkça tetiklenir. {loaded, total, part, key}
+      // loaded = şu ana kadar R2'ye yazılan byte, total = dosya boyutu. Bu HONEST progress
+      // (gerçek internet hızıyla R2'ye yazılım) — istemci bunu poll eder, "anında %96" biter.
+      if (onProgress) {
+        upload.on('httpUploadProgress', (evt) => {
+          try {
+            const loaded = evt.loaded || 0;
+            const total = evt.total || knownTotal || 0;
+            if (total) knownTotal = total;
+            onProgress(loaded, total || knownTotal);
+          } catch { /* listener hatası upload'u bozmasın */ }
+        });
+      }
+
       await upload.done();
+      // finalize: tamamı yazıldı (listener her zaman son part'ı yakalayamayabilir).
+      if (onProgress) onProgress(knownTotal || 0, knownTotal || 0);
       return;
     }
 

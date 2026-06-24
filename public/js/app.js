@@ -721,12 +721,17 @@ class BatchUpload {
     const abortCtrl = new AbortController();
     // Chunk XHR'larını abort için sakla: resume status fetch + aktif chunk xhr.
     const chunkXhrs = [];
+    // Aktif chunkFileId'yi cancel() backend abort için sakla (file.name → chunkFileId).
+    if (!this.activeChunkFileIds) this.activeChunkFileIds = new Map();
+    this.activeChunkFileIds.set(file.name, chunkFileId);
     this.activeXhrs.set(file.name + ':chunk', {
       abort: () => {
         try { abortCtrl.abort(); } catch { /* ignore */ }
         chunkXhrs.forEach(x => { try { x.abort(); } catch { /* ignore */ } });
       },
     });
+    // R2 progress poll interval (son chunk finalize beklerken honest % için).
+    let r2PollTimer = null;
 
     dbg.info('chunk', `Chunked upload init: ${file.name}`, { fileId: chunkFileId, totalChunks, chunkSize: chunkSizeBytes, totalSize: data.size });
 
@@ -747,51 +752,111 @@ class BatchUpload {
       dbg.warn('chunk', `Resume status fetch failed (${file.name}), starting fresh`, err.message);
     }
 
-    // Chunk loop — progress semantiği: ACKNOWLEDGED BYTES.
-    // xhr.upload.progress (e.loaded) yalnızca bu dosyanın SEGMENT FILL'ini günceller
-    // (görsel granular doluş — segment animasyonla dolar). this.progress (batch %) ise
-    // yalnızca chunk HTTP 200 ile onaylandıktan sonra artar → R2 finalize maliyeti
-    // (backend chunk'ı cloud'a yazarken bekleyen 11sn) progress'e dahil olur. Böylece
-    // progress "anında %100" olmaz; chunk cloud'a yazılana kadar %acknowledged'da kalır.
+    // Honest progress semantiği: R2'YE YAZILAN BYTE.
+    // Chunk'lar localhost'a HIZLI ulaşır → eskiden acknowledge edildi = % sayılırdı
+    // ("anında %96"). Artık chunk acknowledge yalnızca "server'a ulaştı" işaretidir;
+    // b.progress (batch %) R2'ye YAZILAN byte ile artar (poll /api/upload/progress).
+    // Son chunk gönderildikten sonra finalize = R2 upload başlar; bu sırada chunk'ın
+    // HTTP cevabı beklenirken R2 progress poll edilir → honest kademeli %.
+    const totalBatchBytes = this.files.reduce((a, f) => a + f.size, 0);
+    const completedBatchBytes = () => this.completedFiles.reduce((a, f) => a + f.file.size, 0);
+
+    // R2 byte → batch progress + segment fill yansıt. R2 finalize sırasında her 500ms.
+    const applyR2Progress = (loaded, total) => {
+      const r2Total = total || data.size || 0;
+      const r2Loaded = Math.min(loaded || 0, r2Total);
+      // b.progress: bu dosyanın R2'ye yazılan byte'ı + önceki tamamlanan dosyalar.
+      const doneBytes = completedBatchBytes() + r2Loaded;
+      this.progress = totalBatchBytes ? Math.round((doneBytes / totalBatchBytes) * 100) : 0;
+      // Segment fill: R2 yazılan byte ile (chunk acknowledge değil).
+      setFileProgress(this, file, r2Loaded);
+      renderTray();
+    };
+
+    // Son chunk finalize beklerken R2 progress poll.
+    const startR2Poll = () => {
+      if (r2PollTimer) return;
+      dbg.info('storage', `R2 progress poll start (${file.name})`, { fileId: chunkFileId });
+      r2PollTimer = setInterval(async () => {
+        if (abortCtrl.signal.aborted || this.status === 'paused' || this.status === 'cancelled') {
+          stopR2Poll();
+          return;
+        }
+        try {
+          const resp = await fetch(`/api/upload/progress/${chunkFileId}`, { signal: abortCtrl.signal });
+          if (!resp.ok) return;
+          const p = await resp.json();
+          if (p.active || p.phase === 'done') {
+            applyR2Progress(p.loaded, p.total);
+            dbg.log('storage', `R2 poll ${p.loaded}/${p.total} (${p.pct}%) phase=${p.phase}`);
+          }
+          if (p.phase === 'done' || p.phase === 'aborted') stopR2Poll();
+        } catch (err) {
+          if (err.name !== 'AbortError') dbg.warn('storage', `R2 poll error`, err.message);
+        }
+      }, 500);
+    };
+    const stopR2Poll = () => {
+      if (r2PollTimer) { clearInterval(r2PollTimer); r2PollTimer = null; }
+    };
+
     for (let i = uploadedChunks; i < totalChunks; i++) {
       if (abortCtrl.signal.aborted || this.status === 'paused' || this.status === 'cancelled') {
+        stopR2Poll();
         this.activeXhrs.delete(file.name + ':chunk');
         throw new Error('aborted');
       }
+      const isLast = (i === totalChunks - 1);
       const start = i * chunkSizeBytes;
       const end = Math.min(start + chunkSizeBytes, data.size);
       const chunk = data.slice(start, end);
       const chunkBase = start;
+
+      // Son chunk gönderilir gönderilmez R2 progress poll başlat — chunk HTTP cevabını
+      // beklemeden, çünkü finalize = R2 upload o cevap gelmeden başlar (backend chunk'ı
+      // alır almaz putObject). Bu "son chunk %'de duraklama" yerine honest R2 % verir.
+      if (isLast) startR2Poll();
+
       const result = await this.uploadChunk(file, chunkFileId, i, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl, chunkXhrs, (loaded) => {
-        // Yalnızca SEGMENT FILL güncellenir (görsel granular). b.progress (batch %)
-        // acknowledged byte ile ilerler — burada güncellenmez (chunk henüz onaylanmadı).
+        // Chunk gönderimi → SEGMENT FILL (görsel granular, e.loaded). b.progress burada
+        // güncellenmez (R2'ye yazılmadı henüz) → "anında %96" sıçraması engellenir.
         const fileBytesUploaded = chunkBase + loaded;
         setFileProgress(this, file, fileBytesUploaded);
         renderTray();
       });
       if (!result) {
+        stopR2Poll();
         this.activeXhrs.delete(file.name + ':chunk');
         throw new Error(`${t('chunkFailed')} (${i + 1}/${totalChunks})`);
       }
       uploadedChunks++;
       chunkBytesUploaded = Math.min((i + 1) * chunkSizeBytes, data.size);
-      // Chunk HTTP 200 ile onaylandı → b.progress acknowledged byte'a güncellenir.
-      // (Son chunk finalize = R2 upload bitince 200 döner → bu güncelleme o beklemeyi
-      //  progress'te gösterir, "anında %100" biter.)
-      const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + chunkBytesUploaded;
-      const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
-      this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
-      setFileProgress(this, file, chunkBytesUploaded);
-      renderTray();
-      // Son chunk → result.complete=true, dosya metadata içerir
+      dbg.info('chunk', `chunk ack ${i + 1}/${totalChunks} (${file.name})`);
+      // Chunk acknowledge = server'a ulaştı (gerçek client→server progress). Mobilde bu
+      // yavaş (gerçek upload hızı), localhost'ta hızlı (gerçek — dosya hızlı server'a).
+      // b.progress: tamamlanan dosyalar + bu dosyanın server'a ulaşan byte'ı (chunk ack).
+      // (Son chunk hariç — onun byte'ı R2 poll ile sayılır, çünkü finalize = R2 upload.)
+      if (!isLast) {
+        const doneBytes = completedBatchBytes() + chunkBytesUploaded;
+        this.progress = totalBatchBytes ? Math.round((doneBytes / totalBatchBytes) * 100) : 0;
+        setFileProgress(this, file, chunkBytesUploaded);
+        renderTray();
+      }
+      // Son chunk → result.complete=true (finalize = R2 upload bitti). Poll zaten honest
+      // R2 % verdi; complete gelince segment done + final %100 (bu dosya).
       if (result.complete) {
+        stopR2Poll();
+        applyR2Progress(data.size, data.size); // finalize bitti → %100 (bu dosya)
         markFileCompleted(this, file);
         renderTray();
         this.activeXhrs.delete(file.name + ':chunk');
+        this.activeChunkFileIds.delete(file.name);
         return result;
       }
     }
+    stopR2Poll();
     this.activeXhrs.delete(file.name + ':chunk');
+    this.activeChunkFileIds.delete(file.name);
     // Tüm chunklar bitti ama complete gelmedi (teorik) → hata
     throw new Error('Chunk upload tamamlanamadı.');
   }
@@ -859,17 +924,29 @@ class BatchUpload {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       chunkXhrs.push(xhr);
+      // Timing: chunk başlangıç → bitiş. "chunk arası neden bekliyor" teşhisi için.
+      const t0 = Date.now();
+      let firstProgressAt = 0;
+      let lastLoaded = 0;
 
       // Granular upload progress → caller batch progress'i günceller.
       if (onProgress) {
         xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) onProgress(e.loaded);
+          if (e.lengthComputable) {
+            if (!firstProgressAt) firstProgressAt = Date.now();
+            lastLoaded = e.loaded;
+            onProgress(e.loaded);
+          }
         });
       }
 
       xhr.addEventListener('load', () => {
         const idx = chunkXhrs.indexOf(xhr);
         if (idx >= 0) chunkXhrs.splice(idx, 1);
+        const totalMs = Date.now() - t0;
+        // firstProgressAt: ilk byte'ın ne zaman gönderilmeye başlandığı (handshake = firstProgressAt - t0).
+        const handshakeMs = firstProgressAt ? (firstProgressAt - t0) : 0;
+        dbg.info('chunk', `chunk ${chunkIndex + 1}/${totalChunks} XHR done totalMs=${totalMs} handshakeMs=${handshakeMs} loaded=${lastLoaded} (${file.name})`);
         const status = xhr.status;
         const txt = xhr.responseText;
         if (status >= 200 && status < 300) {
@@ -948,11 +1025,25 @@ class BatchUpload {
     this.start();
   }
 
-  /** İptal: xhr'ları abort et, FFBatches'ten sil, tray'i yenile. */
+  /** İptal: xhr'ları abort et + backend'e abort sinyali (R2 finalize durdur + tmp temizlik),
+   *  FFBatches'ten sil, tray'i yenile. Yalnızca istemci xhr abort yetmez — backend chunk'ı
+   *  disk'e yazdıysa ve son chunk'sa finalizeUpload → R2 upload arkaplanda devam ederdi. */
   cancel() {
+    if (this.status === 'done' || this.status === 'cancelled') return;
     this.status = 'cancelled';
+    dbg.warn('upload', `Cancel batch ${this.id} — aborting ${this.activeXhrs.size} xhr + backend`);
+    // İstemci xhr'ları abort (chunk gönderimi + R2 poll fetch durur).
     this.activeXhrs.forEach(c => { try { c.abort(); } catch { /* ignore */ } });
     this.activeXhrs.clear();
+    // Backend abort: her aktif chunkFileId için POST /api/upload/abort → markAborted +
+    // tmp temizlik + finalize readStream.destroy (R2 upload durur, orphan yok).
+    if (this.activeChunkFileIds) {
+      for (const chunkFileId of this.activeChunkFileIds.values()) {
+        fetch(`/api/upload/abort/${chunkFileId}`, { method: 'POST' }).catch(() => { /* ignore */ });
+        dbg.warn('upload', `Backend abort sent fileId=${chunkFileId.slice(0, 8)}`);
+      }
+      this.activeChunkFileIds.clear();
+    }
     window.FFBatches.delete(this.id);
     persistBatches(); renderTray();
     showToast(t('uploadCancelled'), 'info');
@@ -1364,7 +1455,26 @@ function formatTrayProgress(b) {
   const done = b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0) +
                Math.round((b.progress || 0) / 100 * (total - b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0)));
   const clampedDone = Math.min(done, total);
-  return total ? `${formatSize(clampedDone)} / ${formatSize(total)}` : `${b.completedFiles.length}/${b.files.length}`;
+  if (!total) return `${b.completedFiles.length}/${b.files.length}`;
+  // Hız + ETA: yalnızca aktif uploading durumunda ve startedAt doluyken.
+  // Bitmiş/duraklatılmış batch'lerde hız/ETA anlamsız → sadece byte özeti.
+  if (b.status === 'uploading' && b.startedAt) {
+    const elapsedSec = Math.max(0.1, (Date.now() - b.startedAt) / 1000);
+    const speed = clampedDone / elapsedSec; // byte/sn
+    const remaining = total - clampedDone;
+    const etaSec = speed > 0 ? remaining / speed : 0;
+    return `${formatSize(clampedDone)} / ${formatSize(total)} · ${formatSize(speed)}/sn · ${formatEta(etaSec)}`;
+  }
+  return `${formatSize(clampedDone)} / ${formatSize(total)}`;
+}
+
+/** ETA saniye → "12sn" / "1dk 05sn" / "—" (sıfır/bilinmiyor). */
+function formatEta(sec) {
+  if (!sec || !isFinite(sec) || sec <= 0) return '—';
+  if (sec < 60) return `${Math.ceil(sec)}sn`;
+  const m = Math.floor(sec / 60);
+  const s = Math.ceil(sec % 60);
+  return `${m}dk ${String(s).padStart(2, '0')}sn`;
 }
 
 function trayStatusLabel(status, lang) {
@@ -2438,6 +2548,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Batch tray geri yükle (localStorage) — completed/partial kartlar read-only
   restoreBatches();
+
+  // Tray tick — aktif upload varken hız/ETA canlı tazelensin. Progress event gelmese
+  // bile (chunk arası bekleme) elapsed zaman arttıkça hız/ETA güncellensin; böylece
+  // user anlık hız görür ("36→40MB arası 10sn = ~0.4MB/s" gibi). Aktif batch yoksa
+  // interval boş çalışır (renderTray no-op'a yakın), yine de yalnızca aktif varken
+  // çalışacak şekilde guard'lıyoruz.
+  setInterval(() => {
+    const hasActive = [...window.FFBatches.values()].some(b => b.status === 'uploading');
+    if (hasActive) renderTray();
+  }, 500);
 
   // Service Worker registration (PWA) — disabled until OOM resolved
   // if ('serviceWorker' in navigator) {
