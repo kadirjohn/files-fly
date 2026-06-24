@@ -277,8 +277,9 @@
     setGateProgress(10, 'Şifreli dosya indiriliyor...');
 
     try {
-      // 1. Ciphertext'i indir
-      const dlResp = await fetch('/api/files/' + fileId + '/dl');
+      // 1. Ciphertext'i indir (?preview=1 → cloud backend'te same-origin stream;
+      // cross-origin 302 redirect fetch arrayBuffer güvenilmezliğini aşar).
+      const dlResp = await fetch('/api/files/' + fileId + '/dl?preview=1');
       if (!dlResp.ok) {
         throw new Error('Dosya indirilemedi. Süresi dolmuş olabilir (HTTP ' + dlResp.status + ').');
       }

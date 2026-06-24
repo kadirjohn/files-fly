@@ -213,7 +213,7 @@ function renderFiles(files) {
     // Şifresiz image'lar için compressed thumbnail (/thumb) kullan — full res /dl'de.
     let iconHtml;
     if (isImage && !expired && !isEncrypted) {
-      iconHtml = `<img src="/api/files/${file.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeAttr(file.mime_type)}" data-fallback-dl="/api/files/${file.id}/dl">`;
+      iconHtml = `<img src="/api/files/${file.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeAttr(file.mime_type)}" data-fallback-dl="/api/files/${file.id}/dl?preview=1">`;
     } else {
       iconHtml = `<span class="file-item-icon">${getFileIcon(file.mime_type, file.filename)}</span>`;
     }
@@ -516,7 +516,7 @@ async function loadSingleFileCard(card, bundleId, isEncrypted) {
     if (iconWrap) {
       const isImg = f.mime_type && f.mime_type.startsWith('image/') && !f.is_encrypted;
       iconWrap.innerHTML = isImg
-        ? `<img src="/api/files/${f.id}/thumb" alt="" class="bundle-thumb-single" data-dl="/api/files/${f.id}/dl">`
+        ? `<img src="/api/files/${f.id}/thumb" alt="" class="bundle-thumb-single" data-dl="/api/files/${f.id}/dl?preview=1">`
         : (isEncrypted
           ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="28" height="28"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`
           : getFileIcon(f.mime_type, f.filename));
@@ -647,7 +647,7 @@ function renderBundleFileList(bundle) {
   const thumbs = currentBundleFiles.map((f) => {
     const isImg = (f.mime_type || '').startsWith('image/');
     const media = isImg
-      ? `<img class="bundle-modal-thumb-media" src="/api/files/${escapeAttr(f.id)}/thumb" data-fallback="/api/files/${escapeAttr(f.id)}/dl" alt="${escapeAttr(f.filename)}" loading="lazy">`
+      ? `<img class="bundle-modal-thumb-media" src="/api/files/${escapeAttr(f.id)}/thumb" data-fallback="/api/files/${escapeAttr(f.id)}/dl?preview=1" alt="${escapeAttr(f.filename)}" loading="lazy">`
       : `<div class="bundle-modal-thumb-icon">${getFileIcon(f.mime_type, f.filename)}</div>`;
     return `
       <div class="bundle-modal-thumb${isEncrypted ? ' encrypted' : ''}" data-id="${escapeAttr(f.id)}"
@@ -826,7 +826,7 @@ async function renderBundlePreviewContent(file) {
   try {
     if (mime.startsWith('image/')) {
       target.innerHTML = `
-        <img src="/api/files/${escapeAttr(fileId)}/dl" alt="${escapeAttr(filename)}" class="preview-thumb-img"
+        <img src="/api/files/${escapeAttr(fileId)}/dl?preview=1" alt="${escapeAttr(filename)}" class="preview-thumb-img"
           style="width:100%;max-height:62vh;object-fit:contain;border-radius:var(--radius-md);display:block;margin:0 auto;">
       `;
       const img = target.querySelector('img');
@@ -836,7 +836,7 @@ async function renderBundlePreviewContent(file) {
     } else if (mime.startsWith('video/')) {
       target.innerHTML = `
         <video controls preload="metadata" playsinline style="width:100%;max-height:64vh;border-radius:var(--radius-md);display:block;margin:0 auto;">
-          <source src="/api/files/${escapeAttr(fileId)}/dl" type="${escapeHtml(mime)}">
+          <source src="/api/files/${escapeAttr(fileId)}/dl?preview=1" type="${escapeHtml(mime)}">
           ${currentLang === 'en' ? 'Your browser does not support video playback.' : 'Tarayıcınız video oynatmayı desteklemiyor.'}
         </video>
       `;
@@ -845,17 +845,17 @@ async function renderBundlePreviewContent(file) {
         <div style="padding:1.5rem 0;">
           <p class="text-muted text-sm mb-2">${escapeHtml(filename)}</p>
           <audio controls style="width:100%">
-            <source src="/api/files/${escapeAttr(fileId)}/dl" type="${escapeHtml(mime)}">
+            <source src="/api/files/${escapeAttr(fileId)}/dl?preview=1" type="${escapeHtml(mime)}">
             ${currentLang === 'en' ? 'Your browser does not support audio playback.' : 'Tarayıcınız ses oynatmayı desteklemiyor.'}
           </audio>
         </div>
       `;
     } else if (mime === 'application/pdf') {
       target.innerHTML = `
-        <iframe src="/api/files/${escapeAttr(fileId)}/dl" style="width:100%;height:55vh;border:none;border-radius:8px;"></iframe>
+        <iframe src="/api/files/${escapeAttr(fileId)}/dl?preview=1" style="width:100%;height:55vh;border:none;border-radius:8px;"></iframe>
       `;
     } else if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/javascript') {
-      const resp = await fetch(`/api/files/${escapeAttr(fileId)}/dl`);
+      const resp = await fetch(`/api/files/${escapeAttr(fileId)}/dl?preview=1`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
       const preview = text.length > 100 * 1024
@@ -939,9 +939,9 @@ async function openPreview(fileId, filename, mimeType) {
     // Resim — preview için compressed thumbnail (/thumb), tam çözünürlük için /dl
     if (mime.startsWith('image/')) {
       DOM.previewContent.innerHTML = `
-        <a href="/api/files/${fileId}/dl" target="_blank" rel="noopener" title="${t('sessionPreviewFullRes')}" class="preview-img-link">
+        <a href="/api/files/${fileId}/dl?preview=1" target="_blank" rel="noopener" title="${t('sessionPreviewFullRes')}" class="preview-img-link">
           <img src="/api/files/${fileId}/thumb" alt="${escapeHtml(filename)}" class="preview-thumb-img"
-            data-fallback="/api/files/${fileId}/dl"
+            data-fallback="/api/files/${fileId}/dl?preview=1"
           >
         </a>
         <p class="text-muted text-xs mt-1"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:3px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> ${currentLang === 'en' ? 'Click image for full resolution' : 'Tam çözünürlük için resme tıkla'}</p>
@@ -965,7 +965,7 @@ async function openPreview(fileId, filename, mimeType) {
     if (mime.startsWith('video/')) {
       DOM.previewContent.innerHTML = `
         <video controls preload="metadata" playsinline style="width:100%;max-height:64vh;border-radius:var(--radius-md);display:block;margin:0 auto;">
-          <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
+          <source src="/api/files/${fileId}/dl?preview=1" type="${escapeHtml(mime)}">
           ${currentLang === 'en' ? 'Your browser does not support video playback.' : 'Tarayıcınız video oynatmayı desteklemiyor.'}
         </video>
       `;
@@ -981,7 +981,7 @@ async function openPreview(fileId, filename, mimeType) {
             ${escapeHtml(filename)}
           </p>
           <audio controls style="width:100%">
-            <source src="/api/files/${fileId}/dl" type="${escapeHtml(mime)}">
+            <source src="/api/files/${fileId}/dl?preview=1" type="${escapeHtml(mime)}">
             ${currentLang === 'en' ? 'Your browser does not support audio playback.' : 'Tarayıcınız ses oynatmayı desteklemiyor.'}
           </audio>
         </div>
@@ -992,7 +992,7 @@ async function openPreview(fileId, filename, mimeType) {
     // PDF
     if (mime === 'application/pdf') {
       DOM.previewContent.innerHTML = `
-        <iframe src="/api/files/${fileId}/dl" style="width:100%;height:55vh;border:none;border-radius:8px;"></iframe>
+        <iframe src="/api/files/${fileId}/dl?preview=1" style="width:100%;height:55vh;border:none;border-radius:8px;"></iframe>
       `;
       return;
     }
@@ -1004,7 +1004,7 @@ async function openPreview(fileId, filename, mimeType) {
       mime === 'application/javascript'
     ) {
       try {
-        const resp = await fetch(`/api/files/${fileId}/dl`);
+        const resp = await fetch(`/api/files/${fileId}/dl?preview=1`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const text = await resp.text();
         const preview = text.length > 100 * 1024

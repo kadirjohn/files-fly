@@ -381,6 +381,14 @@ async function loadFiles(page = 1) {
           : '';
         const titleText = b.title || `${b.file_count} dosya`;
         const bundleIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" class="file-item-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+        // Bundle satırı önizlemesi: ilk şifresiz image dosyanın /thumb'ını küçük
+        // thumbnail olarak göster (sub-row file-item-thumb ile aynı kaynak). Image
+        // yoksa (video/pdf/text/şifreli) bundle ikonu kalsın. Böylece "smoke" gibi
+        // başlık-yalnız görünüm yerine gerçek görsel önizleme olur.
+        const firstImage = files.find(f => (f.mime_type || '').startsWith('image/') && !f.is_encrypted);
+        const bundleThumb = firstImage
+          ? `<img src="/api/files/${escapeHtml(firstImage.id)}/thumb" alt="" loading="lazy" class="file-item-thumb bundle-row-thumb" data-fallback-icon="bundle">`
+          : bundleIcon;
         // IP kolonu: bundle içindeki ilk dosyanın ip_hash'i (örnek).
         const sampleIp = files[0] && files[0].ip_hash ? files[0].ip_hash : (b.session_id || '-');
         const shortHash = (sampleIp && sampleIp.length > 12) ? sampleIp.substring(0, 12) + '...' : sampleIp;
@@ -390,7 +398,7 @@ async function loadFiles(page = 1) {
 
         return `
           <tr class="bundle-table-row row-clickable" data-bundle="${escapeHtml(b.id)}" data-files="${files.length}">
-            <td>${bundleIcon} <strong>${escapeHtml(titleText)}</strong> ${lockBadge} ${expandIcon}</td>
+            <td>${bundleThumb} <strong>${escapeHtml(titleText)}</strong> ${lockBadge} ${expandIcon}</td>
             <td><span class="mono" title="${escapeHtml(sampleIp || '')}">${escapeHtml(shortHash)}</span></td>
             <td>${formatSize(b.total_size)}</td>
             <td>${typeCell}</td>
@@ -423,6 +431,15 @@ async function loadFiles(page = 1) {
         if (!confirm(`"${title}" (${count} dosya) bundle'ını tamamen silmek istediğinize emin misiniz?`)) return;
         deleteBundle(btn.dataset.bundle, bundles);
       });
+    });
+    // Bundle satırı thumbnail fallback: /thumb yüklenemezse bundle ikonuna dön.
+    document.querySelectorAll('img.bundle-row-thumb').forEach(img => {
+      img.addEventListener('error', () => {
+        const span = document.createElement('span');
+        span.className = 'file-item-icon';
+        span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+        img.replaceWith(span);
+      }, { once: true });
     });
   } catch (err) {
     console.error('[loadFiles] error:', err);
@@ -457,7 +474,7 @@ function toggleBundleRow(row, bundleData) {
     const showImageThumb = isImage && !f.is_encrypted;
     const icon = getFileIcon(f.mime_type);
     const iconOrThumb = showImageThumb
-      ? `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}" data-fallback-dl="/api/files/${f.id}/dl">`
+      ? `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}" data-fallback-dl="/api/files/${f.id}/dl?preview=1">`
       : `<span class="file-item-icon">${icon}</span>`;
     const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
 
@@ -572,7 +589,10 @@ async function openPreview(fileId, filename) {
   DOM.previewContent.innerHTML = '<p class="text-muted text-sm">Yükleniyor...</p>';
   DOM.previewPanel.classList.remove('hidden');
   document.body.style.overflow = 'hidden'; // Scroll lock
-  DOM.previewDownloadBtn.href = `/api/files/${fileId}/dl`;
+  // ?preview=1 → cloud backend'te same-origin stream. <a download> + cloud redirect
+  // + Content-Disposition: inline kombinasyonu tarayıcıda sayfa-açma yapıyordu;
+  // same-origin stream ile gerçek dosya akışı gelir (inline → yeni sekmede gösterilir).
+  DOM.previewDownloadBtn.href = `/api/files/${fileId}/dl?preview=1`;
   DOM.previewDownloadBtn.setAttribute('download', filename);
 
   try {
@@ -626,7 +646,7 @@ async function openPreview(fileId, filename) {
       case 'media':
         DOM.previewContent.innerHTML = `
           <video controls style="max-width:100%;">
-            <source src="/api/files/${fileId}/dl" type="${data.mime_type}">
+            <source src="/api/files/${fileId}/dl?preview=1" type="${data.mime_type}">
             Tarayıcınız video oynatmayı desteklemiyor.
           </video>
         `;
@@ -635,7 +655,7 @@ async function openPreview(fileId, filename) {
       case 'pdf':
         DOM.previewContent.innerHTML = `
           <p class="text-muted text-sm mb-1">PDF dosyası — tarayıcıda görüntülemek için indirme linkine tıklayın.</p>
-          <iframe src="/api/files/${fileId}/dl" style="width:100%;height:400px;border:none;border-radius:8px;"></iframe>
+          <iframe src="/api/files/${fileId}/dl?preview=1" style="width:100%;height:400px;border:none;border-radius:8px;"></iframe>
         `;
         break;
 
@@ -793,8 +813,11 @@ async function handleAdminGateSubmit(mode) {
   DOM.adminGateDownloadBtn.disabled = true;
 
   try {
-    // 1. Ciphertext'i indir (admin auth gerekli değil — /api/files/:id/dl public)
-    const dlResp = await fetch(gateFileMeta.download_url || `/api/files/${gateFileMeta.id || previewFileId}/dl`);
+    // 1. Ciphertext'i indir (admin auth gerekli değil — /api/files/:id/dl public).
+    // ?preview=1 → cloud backend'te same-origin stream (cross-origin redirect fetch
+    // arrayBuffer güvenilmezliğini aşar). gateFileMeta.download_url zaten ?preview=1
+    // içeriyor (preview-service); manuel fallback'i de aynı tut.
+    const dlResp = await fetch(gateFileMeta.download_url || `/api/files/${gateFileMeta.id || previewFileId}/dl?preview=1`);
     if (!dlResp.ok) {
       throw new Error('Dosya indirilemedi (HTTP ' + dlResp.status + ').');
     }

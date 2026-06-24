@@ -200,6 +200,18 @@
     cursor: pointer;
 }
 
+/* Bundle satırı önizleme thumbnail'i (kapalıyken ilk image dosyanın küçük thumb'ı).
+   file-item-thumb ile aynı kaynak, ama tablo hücresinde dikey hizalama + margin. */
+.bundle-table-row .bundle-row-thumb {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+    margin-right: 0.45rem;
+    flex-shrink: 0;
+}
+
 .bundle-table-row .bundle-expand-caret {
     transition: transform var(--transition-fast);
     opacity: 0.5;

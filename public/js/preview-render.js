@@ -28,15 +28,17 @@
     } = meta;
 
     // Şifreli → decrypted blob URL'si (browser-side), doğru MIME ile.
-    // Şifresiz → /api/files/:fileId/dl stream'i.
-    const src = decryptedBlobUrl || (fileId ? `/api/files/${fileId}/dl` : null);
+    // Şifresiz → /api/files/:fileId/dl?preview=1 stream'i (?preview=1 → cloud
+    // backend'te presigned 302 redirect yerine same-origin stream zorlar; cross-origin
+    // redirect'in <video>/<img>/<iframe> elementlerini bozmasını önler).
+    const src = decryptedBlobUrl || (fileId ? `/api/files/${fileId}/dl?preview=1` : null);
 
     // --- Image ---
     if (mimeType.startsWith('image/')) {
       const img = document.createElement('img');
       img.className = 'preview-img';
       img.alt = esc(filename);
-      // Şifresiz: önce thumbnail (fallback full /dl). Şifreli: blob URL doğrudan.
+      // Şifresiz: önce thumbnail (fallback full /dl?preview=1). Şifreli: blob URL doğrudan.
       img.src = (!isEncrypted && fileId) ? `/api/files/${fileId}/thumb` : src;
       if (!isEncrypted && fileId) {
         img.onerror = () => { if (img.getAttribute('src') !== src) img.src = src; };

@@ -225,7 +225,11 @@ addRoute('GET', '/api/files/:id/dl', async (req, res, params, body) => {
 
   try {
     const rangeHeader = req.headers.range || null;
-    const result = await serveDownload(fileId, rangeHeader);
+    // ?preview=1 → cloud backend'te presigned 302 redirect yerine same-origin
+    // stream zorla. <video>/<img> src preview'ları için (cross-origin redirect'i
+    // aşar). İndirme linki (?preview yok) redirect'te kalır (sunucu trafiği yok).
+    const previewMode = req.url && /[?&]preview=1\b/.test(req.url);
+    const result = await serveDownload(fileId, rangeHeader, { forceStream: previewMode });
 
     if (result.statusCode === 404) {
       return sendError(res, 404, 'File not found');

@@ -982,8 +982,17 @@ function showTray() {
 // Minimize butonu → toggle küçült/aç. Ayrıca başlık alanına tıklamak da
 // toggle eder (minimize edilmiş chip'i tek yerden — başlığa veya butona — aç).
 // close butonu stopPropagation ile ayrı kalır (gizler).
+// Buton glyph'i duruma göre değişir: expanded → "—" (küçült), minimized → "+" (büyüt).
+// (Önceden her durumda "—" görünüyordu → minimized'de dahi "küçült" ikonu duruyordu,
+// kullanıcı iki minimize ikonu varmış gibi algılıyordu. Durum-aware glyph bunu fix eder.)
 function toggleTrayMinimize() {
-  if (DOM.uploadTray) DOM.uploadTray.classList.toggle('minimized');
+  if (!DOM.uploadTray) return;
+  const nowMinimized = DOM.uploadTray.classList.toggle('minimized');
+  if (DOM.trayMinimize) {
+    DOM.trayMinimize.textContent = nowMinimized ? '+' : '—';
+    DOM.trayMinimize.setAttribute('aria-label', nowMinimized ? t('trayMinimize') : (currentLang === 'en' ? 'Expand' : 'Büyüt'));
+    DOM.trayMinimize.title = nowMinimized ? (currentLang === 'en' ? 'Expand' : 'Büyüt') : t('trayMinimize');
+  }
 }
 if (DOM.trayMinimize) {
   DOM.trayMinimize.addEventListener('click', (e) => {
@@ -1682,24 +1691,49 @@ function initThemeToggle() {
   const darkIcon = toggleBtn.querySelector('.icon-theme-dark');
   const lightIcon = toggleBtn.querySelector('.icon-theme-light');
 
-  function setTheme(isLight) {
+  // Temayı uygula + ikon senkronize et. persist=false ise localStorage'a yazma
+  // (OS temasını izlerken saved tercihi ezmeyelim — kullanıcı manuel seçene kadar).
+  function setTheme(isLight, persist = true) {
     if (isLight) {
       document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('filesfly_theme', 'light');
+      if (persist) localStorage.setItem('filesfly_theme', 'light');
       if (darkIcon) darkIcon.style.display = 'none';
       if (lightIcon) lightIcon.style.display = '';
     } else {
-      document.documentElement.removeAttribute('data-theme');
-      localStorage.setItem('filesfly_theme', 'dark');
+      document.documentElement.removeAttribute('data-theme'); // varsayılan = dark
+      if (persist) localStorage.setItem('filesfly_theme', 'dark');
       if (darkIcon) darkIcon.style.display = '';
       if (lightIcon) lightIcon.style.display = 'none';
     }
   }
 
-  // localStorage'dan tercihi oku
+  // Sıralama: 1) kullanıcının manuel tercihi (localStorage) → en yüksek öncelik.
+  //           2) yoksa işletim sistemi teması (prefers-color-scheme) → Mac/Sistem
+  //              dark ise dark, light ise light. Böylece site kullanıcı sistemine
+  //              uyum sağlar; kullanıcı butona basınca kendi tercihi kalıcı olur.
   const saved = localStorage.getItem('filesfly_theme');
-  if (saved === 'light') setTheme(true);
+  const mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+  const osLight = !!(mql && mql.matches);
 
+  if (saved === 'light') setTheme(true, false);
+  else if (saved === 'dark') setTheme(false, false);
+  else setTheme(osLight, false); // kayıtlı tercih yok → OS temasını uygula (kaydetme)
+
+  // OS teması değişirse (kullanıcı sistem ayarını değiştirirse) ve kullanıcı henüz
+  // manuel tercih yapmadıysa → site teması da güncellensin. Manuel tercih varsa
+  // (saved dolu) → kullanıcı seçimine saygı duy, OS değişimini yoksay.
+  if (mql) {
+    const onOsChange = (e) => {
+      if (localStorage.getItem('filesfly_theme') === null) {
+        setTheme(!!e.matches, false);
+      }
+    };
+    if (mql.addEventListener) mql.addEventListener('change', onOsChange);
+    else if (mql.addListener) mql.addListener(onOsChange); // eski Safari
+  }
+
+  // Manuel toggle → kullanıcının kalıcı tercihi (localStorage'a yazılır; artık
+  // OS değişimini yoksayar).
   toggleBtn.addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme');
     setTheme(current !== 'light');

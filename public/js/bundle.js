@@ -189,7 +189,10 @@
     // navigasyon/gösterme yapar (PDF/video/image'i sayfada açar, indirmez).
     // fetch→blob→triggerDownload ile gerçek kaydetmeyi zorla.
     try {
-      const r = await fetch('/api/files/' + fileId + '/dl');
+      // ?preview=1 → cloud backend'te same-origin stream zorlar. fetch→blob için
+      // kritik: cross-origin 302 redirect (→ Supabase) sonrası arrayBuffer/blob
+      // opaque/CORS kısıtları yüzünden güvenilmez; same-origin stream bundan korur.
+      const r = await fetch('/api/files/' + fileId + '/dl?preview=1');
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const buf = await r.blob();
       const url = URL.createObjectURL(buf);
@@ -263,7 +266,9 @@
     try {
       for (const f of bundle.files) {
         if (!f.is_encrypted) continue;
-        const r = await fetch('/api/files/' + f.id + '/dl');
+        // ?preview=1 → cloud backend'te same-origin stream (cross-origin redirect
+        // fetch arrayBuffer güvenilmezliğini aşar).
+        const r = await fetch('/api/files/' + f.id + '/dl?preview=1');
         if (!r.ok) throw new Error('Dosya alınamadı (HTTP ' + r.status + ').');
         const ct = await r.arrayBuffer();
         // Bundle şifrelemesi: tek parola, bundle-level paylaşımlı salt (server-side

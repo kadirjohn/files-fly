@@ -100,9 +100,17 @@ function parseRange(rangeHeader, fileSize) {
  *
  * @param {string} fileId - Dosya UUID'si
  * @param {string|null} rangeHeader - Range header değeri
+ * @param {Object} [opts] - { forceStream?: boolean }
+ *   forceStream: true ise cloud backend'te bile presigned 302 redirect yerine
+ *   SUNUCU üzerinden stream döndür. Preview (<video>/<img> src) için kullanılır —
+ *   cross-origin redirect bazı tarayıcılarda/CSP'lerde medya elementlerini bozduğu
+ *   için preview yolunu same-origin'e zorlar. İndirme (/dl) redirect'te kalır
+ *   (sunucu trafiği yok). Maliyet: preview başına sunucu trafiği; ama preview zaten
+ *   geçici/tek seferlik.
  * @returns {Promise<Object>} - { statusCode, headers, stream, metadata, redirectUrl? }
  */
-async function serveDownload(fileId, rangeHeader = null) {
+async function serveDownload(fileId, rangeHeader = null, opts = {}) {
+  const { forceStream = false } = opts;
   // Metadata'yı PG'den al (artık storage_backend + storage_key)
   const result = await query(
     `SELECT id, filename, file_size, mime_type, storage_backend, storage_key,
@@ -158,7 +166,10 @@ async function serveDownload(fileId, rangeHeader = null) {
   //   Sunucu bucket'tan okuyup tarayıcıya stream eder; tarayıcı same-origin
   //   fetch ile arrayBuffer'ı güvenle alır. (Maliyet: sunucu trafiği, ama
   //   şifreli dosyalar zaten blob olarak işlenmek zorunda — kaçınılmaz.)
-  if (provider.isCloud && !metadata.is_encrypted) {
+  // forceStream (preview yolu) → cloud şifresiz olsa bile presigned redirect dalını
+  // atla, aşağıdaki same-origin stream dalına düş. Böylece <video>/<img> src her
+  // durumda kendi alanımızdan yüklenir — CSP/cross-origin redirect sorunu olmaz.
+  if (provider.isCloud && !metadata.is_encrypted && !forceStream) {
     try {
       const remainMs = new Date(metadata.expire_at).getTime() - Date.now();
       const remainSec = Math.max(PRESIGN_MIN_SECONDS, Math.floor(remainMs / 1000));

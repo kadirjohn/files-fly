@@ -80,9 +80,15 @@ function setSecurityHeaders(res) {
     // kaldırılabilir.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
-    "img-src 'self' data: blob:; " +
-    "connect-src 'self' https://unpkg.com https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; " +
-    "media-src 'self'; " +
+    // img/media: 'self' local-disk stream için yeterli, AMA cloud backend'lerde
+    // (Supabase/R2) /api/files/:id/dl presigned URL'ye 302 redirect verir → browser
+    // medyayı/görüntüyü cloud alanından (cross-origin) yüklemeye çalışır. 'self'
+    // bu cross-origin kaynağı bloklar → video/image preview hiç açılmaz. Bu yüzden
+    // Supabase + R2 storage alan adlarını img/media'ya ekliyoruz (jokerli — her
+    // proje/bucket'ı kapsar). Blob: client-side decrypt edilmiş şifreli preview için.
+    "img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in https://*.r2.cloudflarestorage.com; " +
+    "connect-src 'self' https://unpkg.com https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.supabase.co https://*.supabase.in https://*.r2.cloudflarestorage.com; " +
+    "media-src 'self' blob: https://*.supabase.co https://*.supabase.in https://*.r2.cloudflarestorage.com; " +
     "frame-ancestors 'none';"
   );
 

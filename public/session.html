@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/base.css?v=20260624">
-    <link rel="stylesheet" href="/css/components.css?v=20260625">
+    <link rel="stylesheet" href="/css/components.css?v=20260626">
     <link rel="stylesheet" href="/css/admin.css?v=20260623">
     <link rel="stylesheet" href="/css/utilities.css?v=20260624">
     <link rel="stylesheet" href="/css/file-page.css?v=20260624">
@@ -34,6 +34,11 @@
             <button class="lang-btn active" data-lang="tr" aria-label="Türkçe" title="Türkçe">TR</button>
             <button class="lang-btn" data-lang="en" aria-label="English" title="English">EN</button>
         </div>
+        <!-- Theme Toggle (index.html:62 ile aynı — app.js initThemeToggle bağlar) -->
+        <button class="theme-toggle" id="theme-toggle" aria-label="Tema değiştir" title="Aydınlık/Karanlık tema">
+            <svg class="icon-theme-dark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            <svg class="icon-theme-light" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
         <a href="/" class="nav-link-files">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             <span data-i18n="sessionHome">Ana Sayfa</span>

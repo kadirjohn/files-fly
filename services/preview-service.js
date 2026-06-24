@@ -94,8 +94,10 @@ async function getPreview(fileId) {
       encryption_iv: file.encryption_iv || null,
       encryption_salt: file.encryption_salt || null,
       file_size: file.file_size,
-      // Ham ciphertext indirme URL'i (admin parolayı girdikten sonra fetch eder)
-      download_url: `/api/files/${file.id}/dl`,
+      // Ham ciphertext indirme URL'i (admin parolayı girdikten sonra fetch eder).
+      // ?preview=1 → cloud backend'te same-origin stream (cross-origin redirect fetch
+      // arrayBuffer güvenilmezliğini aşar — decrypt için kritik).
+      download_url: `/api/files/${file.id}/dl?preview=1`,
       content: null,
     };
   }
@@ -114,24 +116,24 @@ async function getPreview(fileId) {
     return previewImage(file);
   }
 
-  // Video/Ses → direct URL
+  // Video/Ses → direct URL (?preview=1 → cloud'ta same-origin stream)
   if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) {
     return {
       type: 'media',
       mime_type: mimeType,
       filename: file.filename,
-      url: `/api/files/${file.id}/dl`,
+      url: `/api/files/${file.id}/dl?preview=1`,
       content: null,
     };
   }
 
-  // PDF → direct URL (tarayıcı inline açar)
+  // PDF → direct URL (tarayıcı inline açar; ?preview=1 → same-origin stream)
   if (mimeType === 'application/pdf') {
     return {
       type: 'pdf',
       mime_type: mimeType,
       filename: file.filename,
-      url: `/api/files/${file.id}/dl`,
+      url: `/api/files/${file.id}/dl?preview=1`,
       content: null,
     };
   }
@@ -196,7 +198,7 @@ async function previewImage(file) {
       mime_type: file.mime_type,
       filename: file.filename,
       thumbnail_url: null,       // thumbnail kullanılamıyor
-      full_url: `/api/files/${file.id}/dl`,
+      full_url: `/api/files/${file.id}/dl?preview=1`,
       content: null,
       total_size: file.file_size,
     };
@@ -216,7 +218,7 @@ async function previewImage(file) {
     mime_type: file.mime_type,
     filename: file.filename,
     thumbnail_url: thumbReady ? `/api/admin/files/${file.id}/preview-img` : null,
-    full_url: `/api/files/${file.id}/dl`,
+    full_url: `/api/files/${file.id}/dl?preview=1`,
     content: null,
     total_size: file.file_size,
   };
