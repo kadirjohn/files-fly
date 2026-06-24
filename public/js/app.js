@@ -1657,10 +1657,10 @@ function handleBatchSuccess(batch) {
   // preview-link: batch shareUrl (bundle sayfası)
   const previewFull = batch.shareUrl || '';
 
-  DOM.directLinkUrl.textContent = directFull;
-  DOM.previewLinkUrl.textContent = previewFull;
-
-  // Canlı countdown (ilk dosyanın expire_at'i — bundle expire'ı yakın)
+  // direct-link satırı kaldırıldı (önizleme linki + QR yeterli) → element artık
+  // yok; optional chaining ile güvenli. preview-link her zaman dolu.
+  DOM.directLinkUrl && (DOM.directLinkUrl.textContent = directFull);
+  DOM.previewLinkUrl && (DOM.previewLinkUrl.textContent = previewFull);
   if (result.expire_at) startLiveCountdown(result.expire_at);
   // İndirme sayacı (ilk dosya)
   if (result.id) startDownloadCounter(result.id);
@@ -1737,8 +1737,9 @@ function handleUploadSuccess(result) {
   const origin = window.location.origin;
   const directFull = result.direct_url?.startsWith('http') ? result.direct_url : origin + (result.direct_url || '');
   const previewFull = result.preview_url?.startsWith('http') ? result.preview_url : origin + (result.preview_url || '');
-  DOM.directLinkUrl.textContent = directFull;
-  DOM.previewLinkUrl.textContent = previewFull;
+  // direct-link satırı kaldırıldı → element yok; güvenli atama.
+  DOM.directLinkUrl && (DOM.directLinkUrl.textContent = directFull);
+  DOM.previewLinkUrl && (DOM.previewLinkUrl.textContent = previewFull);
   if (result.expire_at) startLiveCountdown(result.expire_at);
   if (result.id) startDownloadCounter(result.id);
   generateQR(directFull);

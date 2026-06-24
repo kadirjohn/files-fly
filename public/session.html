@@ -35,21 +35,24 @@
 <body>
 
 <header class="app-header">
-    <a href="/" class="app-logo">
-        <img src="/filesfly-logo.png" alt="Files Fly" class="app-logo-img">
+    <a href="/" class="app-logo" aria-label="Files Fly Ana Sayfa">
+        <!-- Files Fly Logo PNG -->
+        <img src="/filesfly-logo.png" alt="Files Fly" class="app-logo-img" aria-hidden="true">
         <span>Files Fly</span>
     </a>
     <nav class="app-nav">
+        <!-- Language Switcher (index.html ile aynı) -->
         <div class="lang-switcher">
             <button class="lang-btn active" data-lang="tr" aria-label="Türkçe" title="Türkçe">TR</button>
             <button class="lang-btn" data-lang="en" aria-label="English" title="English">EN</button>
         </div>
-        <!-- Theme Toggle (index.html:62 ile aynı — app.js initThemeToggle bağlar) -->
+        <!-- Theme Toggle (index.html ile aynı — app.js initThemeToggle bağlar) -->
         <button class="theme-toggle" id="theme-toggle" aria-label="Tema değiştir" title="Aydınlık/Karanlık tema">
             <svg class="icon-theme-dark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
             <svg class="icon-theme-light" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         </button>
-        <a href="/" class="nav-link-files">
+        <!-- Ana Sayfa linki (index.html'deki Dosyalarım linkiyle aynı stil) -->
+        <a href="/" class="nav-link-files" aria-label="Ana Sayfa">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             <span data-i18n="sessionHome">Ana Sayfa</span>
         </a>
@@ -191,19 +194,6 @@
             <div id="download-count-info" class="text-center text-sm text-muted mb-2 hidden">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" style="vertical-align:middle;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 <span data-i18n="downloadCount">İndirilme:</span> <strong id="download-count-value">0</strong>
-            </div>
-
-            <!-- Doğrudan İndirme Linki -->
-            <div class="link-box-label" data-i18n="directLinkLabel">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="vertical-align:middle;margin-right:4px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                Doğrudan İndirme Linki [En Hızlı]
-            </div>
-            <div class="link-box">
-                <span class="link-box-url" id="direct-link-url"></span>
-                <button class="btn btn-primary btn-sm link-box-copy" data-copy="direct-link-url" data-i18n="copyBtn">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    Kopyala
-                </button>
             </div>
 
             <!-- Önizleme Sayfası Linki -->
@@ -363,16 +353,21 @@
 <div id="toast-container" class="toast-container"></div>
 
 <!-- =====================================================================
-     Upload Progress Tray (kuyruktaki/aktif yüklemeler — sağ alt sabit).
-     index.html:307-317 ile aynı; app.js renderTray buraya batch kartları basar.
+     Upload Progress Tray (kuyruktaki/aktif yüklemeler — sağ alt sabit, mobilde bottom sheet).
+     index.html ile BİREBİR aynı: minimize + clear (SVG ikon). app.js renderTray
+     buraya batch kartları basar; #tray-clear + #tray-minimize app.js'de bağlanır.
      ===================================================================== -->
 <div id="upload-tray" class="upload-tray hidden" aria-live="polite">
     <div class="upload-tray-header">
         <span class="upload-tray-title" data-i18n="trayTitle">Daha önce yüklenenler</span>
         <div class="upload-tray-controls">
             <span class="upload-tray-count" id="upload-tray-count" hidden></span>
-            <button id="tray-minimize" class="tray-btn" aria-label="Küçült" data-i18n-aria="trayMinimize">—</button>
-            <button id="tray-close" class="tray-btn" aria-label="Kapat" data-i18n-aria="trayClose">✕</button>
+            <button id="tray-clear" class="tray-icon-btn" aria-label="Temizle" data-i18n-aria="trayClear" title="Temizle" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+            <button id="tray-minimize" class="tray-icon-btn" aria-label="Küçült" data-i18n-aria="trayMinimize" title="Küçült">
+                <svg class="tray-min-glyph" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
         </div>
     </div>
     <div id="upload-tray-body" class="upload-tray-body"></div>
