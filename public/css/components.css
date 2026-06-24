@@ -988,10 +988,8 @@
     padding: 0.5rem 0.9rem 0.85rem;
 }
 
-/* Boş tray gövdesi — sadece header görünür */
-.upload-tray-body:empty {
-    display: none;
-}
+/* Boş tray gövdesi artık gizlenmez — .tray-empty placeholder doldurur (Clear sonrası
+   panel "bozulup kapanmaz", davetkar boş-durum gösterir, minimize çalışmaya devam eder). */
 
 /* Tray butonu (minimize/close + batch action butonları) */
 .tray-btn {
@@ -1230,25 +1228,34 @@
     background: rgba(15, 23, 42, 0.08);
 }
 
-/* Segment fill — gradient, width % ile dolar */
+/* Segment fill — gradient, width % ile dolar. Daha yumuşak/uzun transition (0.5s ease-out)
+   → progress tick'leri kademeli doluş olarak görünür (anlık sıçrama değil). */
 .tray-seg-fill {
     height: 100%;
     width: 0;
     background: var(--grad-upload);
     border-radius: 999px;
-    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* Aktif segment (yükleniyor) — hafif canlı glow + shimmer pulse, "canlı çalışıyor" hissi. */
 .tray-seg-active .tray-seg-fill {
     box-shadow: 0 0 8px -1px rgba(var(--color-upload-rgb), 0.6);
+    animation: tray-seg-active-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tray-seg-active-pulse {
+    0%, 100% { box-shadow: 0 0 6px -2px rgba(var(--color-upload-rgb), 0.45); }
+    50%      { box-shadow: 0 0 11px -1px rgba(var(--color-upload-rgb), 0.75); }
 }
 
-/* dosya upload ederken tamamlanan segment — yeşil dolgu + sağ kenarda parlak completion dot. */
+/* Tamamlanan segment — yeşil dolgu + sağ kenarda parlak completion dot. */
 .tray-seg-done .tray-seg-fill {
     background: var(--color-success);
     width: 100%;
     box-shadow: 0 0 8px -1px rgba(var(--color-success-rgb), 0.7);
+    animation: none; /* done segment shimmer etmesin */
 }
-/* completed dot done pulse animasyonu. */
+/* Completed dot: segmentin sağ kenarında küçük parlak nokta — pop + persist pulse.
+   Pop (belirme) + sönüp parlayarak "bitti" vurgusu (user örneğindeki nokta). */
 .tray-seg-done::after {
     content: '';
     position: absolute;
@@ -1270,9 +1277,42 @@
 
 .tray-seg-empty .tray-seg-fill { width: 0; }
 
+/* -------------------------------------------------------------------------
+   Tray Boş-durum placeholder — Clear sonrası / ilk açılışta batch yokken.
+   Panelin "bozulup kapanması" yerine davetkar boş-durum: dosya-yok ikonu + metin.
+   ------------------------------------------------------------------------- */
+.tray-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 1.4rem 0.75rem;
+    color: var(--color-text-dark);
+    text-align: center;
+}
+.tray-empty svg {
+    width: 30px;
+    height: 30px;
+    opacity: 0.5;
+    color: var(--color-text-muted);
+}
+.tray-empty span {
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .tray-seg-fill { transition: none; }
+    .tray-seg-active .tray-seg-fill { animation: none; }
     .tray-seg-done::after { animation: none; }
+}
+
+/* Mobile: segment bar biraz daha ince + dar gap, tray-empty kompakt. */
+@media (max-width: 640px) {
+    .tray-seg-bar { height: 5px; gap: 2px; }
+    .tray-empty { padding: 1rem 0.5rem; }
+    .tray-empty svg { width: 26px; height: 26px; }
 }
 
 .tray-batch-meta {

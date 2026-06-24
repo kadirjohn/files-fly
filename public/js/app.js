@@ -656,14 +656,12 @@ class BatchUpload {
       const xhr = new XMLHttpRequest();
       this.activeXhrs.set(file.name + ':single', xhr);
 
-      // Per-file progress → batch progress (tamamlanan dosya byte'ı eklenir).
-      // Segment-aware: setFileProgress bu dosyanın segment'ini doldurur.
+      // Per-file progress → SEGMENT FILL (görsel granular). b.progress (batch %)
+      // acknowledged byte ile ilerler — burada güncellenmez; xhr.load (HTTP 200) sonrası
+      // güncellenir. Bu singleUpload'da da "anında %100" yerine dosya sunucuya yazılana
+      // kadar % segment doluşu, 200 sonrası % acknowledged ilerlemesi sağlar.
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
-          // Anlık progress: tamamlanan dosyalar + bu dosyanın loaded'ı
-          const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + e.loaded;
-          const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
-          this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
           setFileProgress(this, file, e.loaded);
           renderTray();
         }
@@ -671,7 +669,14 @@ class BatchUpload {
 
       xhr.addEventListener('load', () => {
         this.activeXhrs.delete(file.name + ':single');
+        // HTTP 200 → bu dosya acknowledged. b.progress + segment done güncellenir.
         const status = xhr.status;
+        if (status >= 200 && status < 300) {
+          const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + (data.size || file.size || 0);
+          const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
+          this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
+          setFileProgress(this, file, data.size || file.size || 0);
+        }
         const txt = xhr.responseText;
         dbg.info('upload', `XHR response: HTTP ${status} (${file.name})`);
         if (status >= 200 && status < 300) {
@@ -742,8 +747,12 @@ class BatchUpload {
       dbg.warn('chunk', `Resume status fetch failed (${file.name}), starting fresh`, err.message);
     }
 
-    // Chunk loop — her chunk için segment-fill animasyonu (bu dosyanın segmenti dolar).
-    // setFileProgress: progress-fill %'yi segment bilgisine dönüştürür (multi-file segmented bar).
+    // Chunk loop — progress semantiği: ACKNOWLEDGED BYTES.
+    // xhr.upload.progress (e.loaded) yalnızca bu dosyanın SEGMENT FILL'ini günceller
+    // (görsel granular doluş — segment animasyonla dolar). this.progress (batch %) ise
+    // yalnızca chunk HTTP 200 ile onaylandıktan sonra artar → R2 finalize maliyeti
+    // (backend chunk'ı cloud'a yazarken bekleyen 11sn) progress'e dahil olur. Böylece
+    // progress "anında %100" olmaz; chunk cloud'a yazılana kadar %acknowledged'da kalır.
     for (let i = uploadedChunks; i < totalChunks; i++) {
       if (abortCtrl.signal.aborted || this.status === 'paused' || this.status === 'cancelled') {
         this.activeXhrs.delete(file.name + ':chunk');
@@ -754,11 +763,9 @@ class BatchUpload {
       const chunk = data.slice(start, end);
       const chunkBase = start;
       const result = await this.uploadChunk(file, chunkFileId, i, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl, chunkXhrs, (loaded) => {
-        // Granular per-chunk progress: chunkBase + loaded = bu dosyanın uploaded byte'ı.
+        // Yalnızca SEGMENT FILL güncellenir (görsel granular). b.progress (batch %)
+        // acknowledged byte ile ilerler — burada güncellenmez (chunk henüz onaylanmadı).
         const fileBytesUploaded = chunkBase + loaded;
-        const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + fileBytesUploaded;
-        const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
-        this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
         setFileProgress(this, file, fileBytesUploaded);
         renderTray();
       });
@@ -768,7 +775,9 @@ class BatchUpload {
       }
       uploadedChunks++;
       chunkBytesUploaded = Math.min((i + 1) * chunkSizeBytes, data.size);
-      // Chunk bitti → bu dosyanın segmenti tamam (animasyon fill bitişi).
+      // Chunk HTTP 200 ile onaylandı → b.progress acknowledged byte'a güncellenir.
+      // (Son chunk finalize = R2 upload bitince 200 döner → bu güncelleme o beklemeyi
+      //  progress'te gösterir, "anında %100" biter.)
       const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + chunkBytesUploaded;
       const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
       this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
@@ -1039,9 +1048,20 @@ function markFileCompleted(batch, file) {
  */
 function renderSegmentBar(batch) {
   const files = batch.files || [];
+  const pct = batch.progress || 0;
+  // fileProgress yoksa (localStorage stub — File nesneleri yok, sadece meta) veya dosya
+  // yoksa: tek-segment fallback (batch.progress % ile). done/partial stub için %100.
+  if (!batch.fileProgress || files.length === 0) {
+    const done = batch.status === 'done';
+    return `<div class="tray-seg-bar single">
+      <div class="tray-seg ${done ? 'seg-done' : (pct > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
+        <div class="tray-seg-fill" style="width:${done ? 100 : pct}%"></div>
+      </div>
+    </div>`;
+  }
   // fileProgress'ten okunan durum; olmayan dosyalar boş segment.
   const segs = files.map(f => {
-    const st = (batch.fileProgress && batch.fileProgress.get(fileKey(f))) || null;
+    const st = batch.fileProgress.get(fileKey(f)) || null;
     return {
       total: f.size || (st && st.total) || 0,
       bytes: st ? st.bytes : 0,
@@ -1051,18 +1071,18 @@ function renderSegmentBar(batch) {
   // Tek dosya → tek segment (basit bar; multi-file hissi yok).
   if (segs.length <= 1) {
     const s = segs[0] || { total: 0, bytes: 0, done: false };
-    const pct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    const spct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
     return `<div class="tray-seg-bar single">
       <div class="tray-seg ${s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
-        <div class="tray-seg-fill" style="width:${s.done ? 100 : pct}%"></div>
+        <div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div>
       </div>
     </div>`;
   }
   // Çoklu dosya → her dosya 1fr segment. Grid gap segmentler arası küçük boşluk = "dot".
   const segHtml = segs.map(s => {
-    const pct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    const spct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
     const cls = s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty');
-    return `<div class="tray-seg ${cls}"><div class="tray-seg-fill" style="width:${s.done ? 100 : pct}%"></div></div>`;
+    return `<div class="tray-seg ${cls}"><div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div></div>`;
   }).join('');
   return `<div class="tray-seg-bar multi" style="--seg-count:${segs.length}">${segHtml}</div>`;
 }
@@ -1126,9 +1146,10 @@ function getBatchEmailSubjectName(b) {
 function renderTray() {
   const body = DOM.uploadTrayBody;
   if (!body) return;
-  body.innerHTML = '';
 
-  // Event delegation (her render'da yeniden bağlanır — innerHTML temizlediği için)
+  // Event delegation (bir kez bağlanır — artık innerHTML temizlemiyoruz, kartları
+  // güncelliyoruz, bu yüzden listener her render'da yeniden bağlanmak zorunda değil.
+  // Yine de güvenli tek-atış bağlama: body.onclick her çağrıda aynı fonksiyonu set eder.)
   body.onclick = (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
@@ -1145,38 +1166,55 @@ function renderTray() {
     if (btn.dataset.cancel && batch) { batch.cancel(); return; }
   };
 
-  // Yeni batch en üstte görünsün → FFBatches (eklenme sırası: eski→yeni)
-  // ters çevrilir. appendChild ile ilk çizilen en üste gelir (yeni batch en üstte).
-  // Slide-in animasyonu SADECE yeni eklenen batch'e (önceki render'da yoktu) verilir;
-  // aksi halde her progress tick'te tüm kartlar yeniden çizilip titrerdi.
-  const batches = [...window.FFBatches.values()].reverse();
-  for (const b of batches) {
-    const card = document.createElement('div');
-    const isNew = !trayRenderedBatchIds.has(b.id);
-    card.className = 'tray-batch-card' + (isNew ? ' tray-batch-card-enter' : '');
-    const name = getBatchDisplayName(b);
-    const statusLabel = trayStatusLabel(b.status, currentLang);
-    const pct = b.progress || 0;
-    card.dataset.status = b.status;
-    // Segment bar: multi-file batch'te her dosya kendi segment'ini doldurur; tek dosyada
-    // geleneksel tek bar. fileProgress yoksa (restore edilmiş localStorage stub) fallback % bar.
-    const segBar = (b.fileProgress && b.files && b.files.length) ? renderSegmentBar(b) : `<div class="tray-seg-bar single"><div class="tray-seg ${b.status === 'done' ? 'seg-done' : (pct > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%"><div class="tray-seg-fill" style="width:${pct}%"></div></div></div>`;
-    card.innerHTML = `
-      <div class="tray-batch-top">
-        <span class="tray-batch-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
-        <span class="tray-batch-status">${statusLabel}</span>
-      </div>
-      ${segBar}
-      <div class="tray-batch-meta">${formatTrayProgress(b)} · %${pct}</div>
-      <div class="tray-batch-actions">
-        ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
-        ${b.status === 'partial' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
-        ${b.status === 'uploading' ? `<button class="tray-btn" data-pause="${b.id}">${t('trayPause')}</button>` : ''}
-        ${b.status === 'paused' ? `<button class="tray-btn" data-resume="${b.id}">${t('trayResume')}</button>` : ''}
-        ${b.status !== 'done' && b.status !== 'cancelled' ? `<button class="tray-btn" data-cancel="${b.id}">${t('trayCancel')}</button>` : ''}
-      </div>`;
+  // --- Boş-durum: batch yoksa placeholder çiz, mevcut kartları kaldır ---
+  const batches = [...window.FFBatches.values()];
+  if (batches.length === 0) {
+    body.querySelectorAll('.tray-batch-card').forEach(c => c.remove());
+    if (!body.querySelector('.tray-empty')) {
+      body.innerHTML = renderTrayEmpty();
+    }
+    if (DOM.uploadTrayCount) { DOM.uploadTrayCount.textContent = ''; DOM.uploadTrayCount.hidden = true; }
+    updateTrayClearVisibility();
+    return;
+  }
+  // Batch varsa kalmış placeholder'ı kaldır.
+  const emptyEl = body.querySelector('.tray-empty');
+  if (emptyEl) emptyEl.remove();
+
+  // --- Diff/güncelleme: mevcut kartları data-batch-id ile tanı ---
+  // ROOT CAUSE: eskiden her tick'te body.innerHTML='' yapıp tüm kartları yeniden
+  // yaratırdık → segment fill inline width ile yeni element doğar → CSS transition
+  // hiç çalışmaz, progress tick'leri ekranda "görünmeden" geçerdi ("anında %100").
+  // Şimdi mevcut kartı güncelliyoruz (fill width + cls + meta + status + actions),
+  // element yeniden yaratılmaz → transition çalışır, intermediate değerler görünür.
+  const existingCards = new Map();
+  body.querySelectorAll('.tray-batch-card').forEach(c => existingCards.set(c.dataset.batchId, c));
+
+  // Yeni batch en üstte → reverse (eklenme sırası eski→yeni → yeni önce çizilir).
+  const ordered = [...batches].reverse();
+
+  // ordered sırasına göre kartları DOM'da yeniden diz (basit + doğru: her kartı
+  // sırayla insertBefore null = append sona; önce ordered'daki sırayla topla).
+  for (const b of ordered) {
+    let card = existingCards.get(b.id);
+    if (!card) {
+      // Yeni kart: oluştur (slide-in enter class ile — trayRenderedBatchIds yoksa yeni).
+      card = document.createElement('div');
+      card.className = 'tray-batch-card' + (trayRenderedBatchIds.has(b.id) ? '' : ' tray-batch-card-enter');
+      card.dataset.batchId = b.id;
+      card.innerHTML = buildBatchCardInner(b);
+      trayRenderedBatchIds.add(b.id);
+    } else {
+      // Mevcut kart: içeriği güncelle (transition korunur).
+      updateBatchCard(card, b);
+    }
+    // Sıralama: kartı append sırasıyla sona taşı → ordered reverse → yeni en üstte.
     body.appendChild(card);
-    trayRenderedBatchIds.add(b.id);
+  }
+
+  // Fazlalık kartları (artık FFBatches'te olmayan) kaldır.
+  for (const [id, card] of existingCards) {
+    if (!ordered.some(b => b.id === id)) card.remove();
   }
 
   // Slide-in: yeni kartların enter class'ı sonraki frame'de kaldırılır → CSS transition
@@ -1188,8 +1226,8 @@ function renderTray() {
   });
 
   // Tray count: aktif (uploading/paused/pending) batch sayısı. 0 iken pill gizli
-  // (boş "0" rozeti kalmasın — user "ayrı minimize iconu" sanmasın).
-  const activeCount = [...window.FFBatches.values()].filter(b => ['uploading', 'paused', 'pending'].includes(b.status)).length;
+  // (boş "0" rozeti kalmasın — user "ayrı minimize iconu" sandığı şey buydu).
+  const activeCount = batches.filter(b => ['uploading', 'paused', 'pending'].includes(b.status)).length;
   if (DOM.uploadTrayCount) {
     if (activeCount > 0) {
       DOM.uploadTrayCount.textContent = String(activeCount);
@@ -1202,6 +1240,118 @@ function renderTray() {
 
   // Clear butonu yalnızca kart varken görünür.
   updateTrayClearVisibility();
+}
+
+/**
+ * Yeni bir batch kartının iç HTML'ini üretir (ilk çizim). Sonraki güncellemeler
+ * updateBatchCard ile parça parça yapılır (transition korunması için).
+ */
+function buildBatchCardInner(b) {
+  const name = getBatchDisplayName(b);
+  const statusLabel = trayStatusLabel(b.status, currentLang);
+  const pct = b.progress || 0;
+  const segBar = renderSegmentBar(b);
+  return `
+    <div class="tray-batch-top">
+      <span class="tray-batch-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
+      <span class="tray-batch-status">${statusLabel}</span>
+    </div>
+    ${segBar}
+    <div class="tray-batch-meta">${formatTrayProgress(b)} · %${pct}</div>
+    <div class="tray-batch-actions">
+      ${buildBatchActions(b)}
+    </div>`;
+}
+
+/**
+ * Mevcut batch kartını günceller — segment fill width + cls, meta text, status label,
+ * actions innerHTML. Element yeniden yaratılmaz → CSS width transition çalışır,
+ * progress tick'leri animasyonlu görünür ("anında %100" fix).
+ */
+function updateBatchCard(card, b) {
+  card.dataset.status = b.status;
+  const nameEl = card.querySelector('.tray-batch-name');
+  if (nameEl) {
+    const name = getBatchDisplayName(b);
+    nameEl.textContent = name;
+    nameEl.title = name;
+  }
+  const statusEl = card.querySelector('.tray-batch-status');
+  if (statusEl) statusEl.textContent = trayStatusLabel(b.status, currentLang);
+
+  // Segment bar: segment sayısı aynıysa mevcut .tray-seg elementlerini güncelle
+  // (transition çalışsın); farklıysa (dosya sayısı değişti — nadir) yeniden üret.
+  const segBarEl = card.querySelector('.tray-seg-bar');
+  const wantCount = (b.files && b.files.length) || 0;
+  const haveCount = segBarEl ? segBarEl.querySelectorAll('.tray-seg').length : 0;
+  if (!segBarEl || haveCount !== wantCount || (wantCount <= 1) !== segBarEl.classList.contains('single')) {
+    // Yeniden üret (yapı değişti).
+    if (segBarEl) segBarEl.outerHTML = renderSegmentBar(b);
+    else {
+      // İlk seferde segment bar yok → top sonrası ekle.
+      const top = card.querySelector('.tray-batch-top');
+      if (top) top.insertAdjacentHTML('afterend', renderSegmentBar(b));
+    }
+  } else {
+    // Mevcut segmentleri güncelle (transition korunur).
+    updateSegmentBar(segBarEl, b);
+  }
+
+  const metaEl = card.querySelector('.tray-batch-meta');
+  if (metaEl) {
+    const pct = b.progress || 0;
+    metaEl.textContent = `${formatTrayProgress(b)} · %${pct}`;
+  }
+  const actionsEl = card.querySelector('.tray-batch-actions');
+  if (actionsEl) actionsEl.innerHTML = buildBatchActions(b);
+}
+
+/**
+ * Mevcut .tray-seg-bar içindeki segment fill width + durum cls'ini günceller.
+ * Elementleri yeniden yaratmaz → CSS width transition çalışır (kademeli doluş görünür).
+ */
+function updateSegmentBar(segBarEl, b) {
+  const files = b.files || [];
+  const segs = segBarEl.querySelectorAll('.tray-seg');
+  files.forEach((f, i) => {
+    const seg = segs[i];
+    if (!seg) return;
+    const st = (b.fileProgress && b.fileProgress.get(fileKey(f))) || null;
+    const total = f.size || (st && st.total) || 0;
+    const bytes = st ? st.bytes : 0;
+    const done = st ? st.done : false;
+    const pct = total ? Math.min(100, Math.round((bytes / total) * 100)) : (done ? 100 : 0);
+    const cls = done ? 'seg-done' : (bytes > 0 ? 'seg-active' : 'seg-empty');
+    // cls güncelle (önceki active/done/empty sınıfları temizle).
+    seg.classList.remove('seg-done', 'seg-active', 'seg-empty');
+    seg.classList.add(cls);
+    const fill = seg.querySelector('.tray-seg-fill');
+    if (fill) fill.style.width = (done ? 100 : pct) + '%';
+  });
+}
+
+/**
+ * Batch action butonları HTML'ini üretir (duruma göre: copy-link / pause / resume / cancel).
+ */
+function buildBatchActions(b) {
+  return `
+    ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
+    ${b.status === 'partial' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
+    ${b.status === 'uploading' ? `<button class="tray-btn" data-pause="${b.id}">${t('trayPause')}</button>` : ''}
+    ${b.status === 'paused' ? `<button class="tray-btn" data-resume="${b.id}">${t('trayResume')}</button>` : ''}
+    ${b.status !== 'done' && b.status !== 'cancelled' ? `<button class="tray-btn" data-cancel="${b.id}">${t('trayCancel')}</button>` : ''}`;
+}
+
+/**
+ * Tray boş-durum placeholder HTML'i: dosya-yok SVG ikonu + i18n metni.
+ * Clear sonrası / ilk açılışta batch yokken panelin "bozulup kapanması" yerine
+ * davetkar boş-durum gösterir. Panel header (title + ikonlar) kalır.
+ */
+function renderTrayEmpty() {
+  return `<div class="tray-empty">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+    <span>${t('trayEmpty')}</span>
+  </div>`;
 }
 
 /**
@@ -1295,12 +1445,16 @@ if (DOM.trayClear) {
       }
     }
     window.FFBatches = keep;
-    trayRenderedBatchIds.clear();
+    // trayRenderedBatchIds: kalan (aktif) batch'ler için korunsun ki slide-in tekrar
+    // oynamasın; temizlenenler Set'ten de çıkarılsın.
+    const keepIds = new Set([...keep.keys()]);
+    for (const id of [...trayRenderedBatchIds]) {
+      if (!keepIds.has(id)) trayRenderedBatchIds.delete(id);
+    }
     persistBatches();
-    if (DOM.uploadTrayBody) DOM.uploadTrayBody.innerHTML = '';
-    if (DOM.uploadTrayCount) { DOM.uploadTrayCount.textContent = ''; DOM.uploadTrayCount.hidden = true; }
+    // body.innerHTML='' YAPMA — renderTray diff artık kartları kaldırır + boş-durum
+    // placeholder çizer. Panel "bozulup kapanmaz", placeholder görünür, minimize çalışır.
     renderTray();
-    updateTrayClearVisibility();
   });
 }
 
