@@ -171,7 +171,7 @@
   // =========================================================================
   // İndirme
   // =========================================================================
-  function downloadOne(fileId) {
+  async function downloadOne(fileId) {
     const f = bundle.files.find((x) => x.id === fileId);
     if (!f) return;
     if (f.is_encrypted && decrypted[fileId]) {
@@ -185,7 +185,19 @@
       setTimeout(() => dom.gatePass.focus(), 50);
       return;
     }
-    window.location.href = '/api/files/' + fileId + '/dl';
+    // Content-Disposition: inline olduğu için window.location.href browser'da
+    // navigasyon/gösterme yapar (PDF/video/image'i sayfada açar, indirmez).
+    // fetch→blob→triggerDownload ile gerçek kaydetmeyi zorla.
+    try {
+      const r = await fetch('/api/files/' + fileId + '/dl');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const buf = await r.blob();
+      const url = URL.createObjectURL(buf);
+      triggerDownload(url, f.filename || 'dosya');
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      alert(t('bundleDownload') + ': ' + e.message);
+    }
   }
 
   async function downloadZip(ids) {
@@ -217,7 +229,7 @@
   async function downloadAllIndividually() {
     for (const f of bundle.files) {
       if (f.is_encrypted && decrypted[f.id]) triggerDownload(decrypted[f.id], f.filename);
-      else if (!f.is_encrypted) window.open('/api/files/' + f.id + '/dl', '_blank', 'noopener');
+      else if (!f.is_encrypted) await downloadOne(f.id); // blob-fetch + triggerDownload (window.open yerine)
     }
   }
 

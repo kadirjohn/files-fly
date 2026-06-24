@@ -979,13 +979,28 @@ function showTray() {
 }
 
 // Tray kontrolleri
+// Minimize butonu → toggle küçült/aç. Ayrıca başlık alanına tıklamak da
+// toggle eder (minimize edilmiş chip'i tek yerden — başlığa veya butona — aç).
+// close butonu stopPropagation ile ayrı kalır (gizler).
+function toggleTrayMinimize() {
+  if (DOM.uploadTray) DOM.uploadTray.classList.toggle('minimized');
+}
 if (DOM.trayMinimize) {
-  DOM.trayMinimize.addEventListener('click', () => {
-    DOM.uploadTray.classList.toggle('minimized');
+  DOM.trayMinimize.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTrayMinimize();
   });
 }
+// Başlık alanına tıkla → minimize toggle (sadece başlık metnini kapsayan alan).
+const trayTitle = DOM.uploadTray && DOM.uploadTray.querySelector('.upload-tray-title');
+if (trayTitle) {
+  trayTitle.style.cursor = 'pointer';
+  trayTitle.title = currentLang === 'en' ? 'Click to expand/collapse' : 'Açmak/kapamak için tıkla';
+  trayTitle.addEventListener('click', toggleTrayMinimize);
+}
 if (DOM.trayClose) {
-  DOM.trayClose.addEventListener('click', () => {
+  DOM.trayClose.addEventListener('click', (e) => {
+    e.stopPropagation();
     const active = [...window.FFBatches.values()].some(b => ['uploading', 'paused', 'pending'].includes(b.status));
     if (!active) {
       DOM.uploadTray.classList.add('hidden');

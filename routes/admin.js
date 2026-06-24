@@ -112,13 +112,19 @@ addAdminRoute('GET', '/api/admin/files', async (req, res, params, body) => {
     const mimeType = req.query.mime_type || '';
     const ipHash = req.query.ip_hash || '';
 
-    // WHERE clause oluştur
+    // Filtreler artık BUNDLE düzeyinde uygulanır (admin dosyaları tek tek değil
+    // bundle olarak gruplu gösterir). Migration 004 her dosyaya bir bundle verir,
+    // bu yüzden ana sorgu bundles üzerinden döner; bundle_id IS NULL (migrate
+    // edilmemiş DB) dosyalar savunma olarak LEFT JOIN ile "pseudo-bundle" olur.
+    //
+    // search → bundle title OR herhangi bir dosya adı eşleşirse bundle dahil.
+    // mime_type / ip_hash → bundle'ın dosyalarından en az biri eşleşirse dahil.
     const conditions = [];
     const values = [];
     let paramIndex = 1;
 
     if (search) {
-      conditions.push(`filename ILIKE $${paramIndex}`);
+      conditions.push(`(b.title ILIKE $${paramIndex} OR EXISTS (SELECT 1 FROM files f WHERE f.bundle_id = b.id AND f.filename ILIKE $${paramIndex}))`);
       values.push(`%${search}%`);
       paramIndex++;
     }
@@ -126,17 +132,17 @@ addAdminRoute('GET', '/api/admin/files', async (req, res, params, body) => {
     if (mimeType) {
       if (mimeType.endsWith('/*')) {
         const prefix = mimeType.replace('/*', '');
-        conditions.push(`mime_type LIKE $${paramIndex}`);
+        conditions.push(`EXISTS (SELECT 1 FROM files f WHERE f.bundle_id = b.id AND f.mime_type LIKE $${paramIndex})`);
         values.push(`${prefix}/%`);
       } else {
-        conditions.push(`mime_type = $${paramIndex}`);
+        conditions.push(`EXISTS (SELECT 1 FROM files f WHERE f.bundle_id = b.id AND f.mime_type = $${paramIndex})`);
         values.push(mimeType);
       }
       paramIndex++;
     }
 
     if (ipHash) {
-      conditions.push(`ip_hash = $${paramIndex}`);
+      conditions.push(`EXISTS (SELECT 1 FROM files f WHERE f.bundle_id = b.id AND f.ip_hash = $${paramIndex})`);
       values.push(ipHash);
       paramIndex++;
     }
@@ -145,25 +151,34 @@ addAdminRoute('GET', '/api/admin/files', async (req, res, params, body) => {
       ? `WHERE ${conditions.join(' AND ')}`
       : '';
 
-    // Toplam sayı
+    // Toplam bundle sayısı (sayfalama için).
     const countResult = await query(
-      `SELECT COUNT(*) as total FROM files ${whereClause}`,
+      `SELECT COUNT(*) as total FROM bundles b ${whereClause}`,
       values
     );
     const total = parseInt(countResult.rows[0].total);
 
-    // Dosyaları getir
-    const filesResult = await query(
-      `SELECT id, session_id, ip_hash, filename, file_size, mime_type,
-              direct_url, expire_at, is_encrypted, created_at, download_count
-       FROM files ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+    // Bundle'ları + içerdikleri dosyaları json_agg subquery ile birlikte getir.
+    // ip_hash en yaygın (herhangi bir) dosyadan örneklenir → admin'de IP kolonu.
+    const bundlesResult = await query(
+      `SELECT b.id, b.title, b.file_count, b.total_size, b.expire_at,
+              b.is_encrypted, b.created_at, b.session_id,
+              (SELECT json_agg(json_build_object(
+                 'id', f.id, 'filename', f.filename, 'file_size', f.file_size,
+                 'mime_type', f.mime_type, 'is_encrypted', f.is_encrypted,
+                 'ip_hash', f.ip_hash, 'direct_url', f.direct_url,
+                 'expire_at', f.expire_at, 'download_count', f.download_count,
+                 'created_at', f.created_at) ORDER BY f.created_at)
+               FROM files f WHERE f.bundle_id = b.id) AS files
+         FROM bundles b
+         ${whereClause}
+         ORDER BY b.created_at DESC
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...values, limit, offset]
     );
 
     sendJSON(res, 200, {
-      files: filesResult.rows,
+      bundles: bundlesResult.rows,
       total,
       page,
       pages: Math.ceil(total / limit),

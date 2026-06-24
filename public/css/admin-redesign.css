@@ -192,3 +192,32 @@
     .settings-panel[data-settings-panel="general"] .form-group { padding: 0.75rem 0.85rem; }
     .storage-cred-modal-box .preview-content { padding: 1.1rem; }
 }
+
+/* =========================================================================
+   Admin Files — bundle-grouped rows (loadFiles renders bundles, expand for files)
+   ========================================================================= */
+.bundle-table-row {
+    cursor: pointer;
+}
+
+.bundle-table-row .bundle-expand-caret {
+    transition: transform var(--transition-fast);
+    opacity: 0.5;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+}
+
+.bundle-table-row.bundle-row-open .bundle-expand-caret {
+    transform: rotate(180deg);
+    opacity: 0.9;
+}
+
+/* Açılan bundle'ın alt dosya satırları — daha soluk arka planla grup hissi. */
+.bundle-table-row.bundle-row-open + .bundle-files-row,
+.bundle-sub-row {
+    background: rgba(var(--color-primary-rgb), 0.03);
+}
+
+.bundle-sub-row:hover {
+    background: rgba(var(--color-primary-rgb), 0.06);
+}

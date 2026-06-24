@@ -366,80 +366,62 @@ async function loadFiles(page = 1) {
 
     filesTotalPages = data.pages;
 
-    // Tablo
-    if (data.files.length === 0) {
+    // Tablo — bundle gruplu (her bundle bir satır, tıklayınca dosyaları açılır).
+    const bundles = data.bundles || [];
+    if (bundles.length === 0) {
       DOM.filesTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Dosya bulunamadı.</td></tr>';
     } else {
-      DOM.filesTableBody.innerHTML = data.files.map(f => {
-        const expired = new Date(f.expire_at) < new Date();
-        // CSP-safe: use class instead of inline style
+      DOM.filesTableBody.innerHTML = bundles.map(b => {
+        const files = Array.isArray(b.files) ? b.files : [];
+        const expired = new Date(b.expire_at) < new Date();
         const expiredSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="icon-error icon-va-mid"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
-        const timeLeft = expired ? `${expiredSvg} Süresi doldu` : getTimeLeft(f.expire_at);
-        const isImage = f.mime_type && f.mime_type.startsWith('image/');
-        const icon = getFileIcon(f.mime_type);
-        const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
-
-        // Image thumbnail — compressed /thumb kullan, full /dl'ye düş (şifreli ise ikon)
-        const showImageThumb = isImage && !f.is_encrypted;
-        const iconOrThumb = showImageThumb
-          ? `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}" data-fallback-dl="/api/files/${f.id}/dl">`
-          : `<span class="file-item-icon">${icon}</span>`;
-
-        // Şifreli dosyalar için kilit rozeti
-        const lockBadge = f.is_encrypted
+        const timeLeft = expired ? `${expiredSvg} Süresi doldu` : getTimeLeft(b.expire_at);
+        const lockBadge = b.is_encrypted
           ? `<span class="encrypted-lock-badge" title="Parola korumalı"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
           : '';
+        const titleText = b.title || `${b.file_count} dosya`;
+        const bundleIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" class="file-item-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
+        // IP kolonu: bundle içindeki ilk dosyanın ip_hash'i (örnek).
+        const sampleIp = files[0] && files[0].ip_hash ? files[0].ip_hash : (b.session_id || '-');
+        const shortHash = (sampleIp && sampleIp.length > 12) ? sampleIp.substring(0, 12) + '...' : sampleIp;
+        // Tür kolonu: tek dosyalık bundle → tür, çoklu → "N dosya".
+        const typeCell = files.length === 1 ? (files[0].mime_type || '-') : `${files.length} dosya`;
+        const expandIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="bundle-expand-caret"><polyline points="6 9 12 15 18 9"/></svg>`;
 
         return `
-          <tr class="file-table-row row-clickable" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" data-encrypted="${f.is_encrypted ? '1' : '0'}">
-            <td>
-              ${iconOrThumb}
-              <span title="${escapeHtml(f.filename)}">${truncate(f.filename, 30)}</span> ${lockBadge}
-            </td>
-            <td><span class="mono" title="${f.ip_hash}">${shortHash}</span></td>
-            <td>${formatSize(f.file_size)}</td>
-            <td>${f.mime_type || '-'}</td>
+          <tr class="bundle-table-row row-clickable" data-bundle="${escapeHtml(b.id)}" data-files="${files.length}">
+            <td>${bundleIcon} <strong>${escapeHtml(titleText)}</strong> ${lockBadge} ${expandIcon}</td>
+            <td><span class="mono" title="${escapeHtml(sampleIp || '')}">${escapeHtml(shortHash)}</span></td>
+            <td>${formatSize(b.total_size)}</td>
+            <td>${typeCell}</td>
             <td>${timeLeft}</td>
             <td>
-              <button class="btn btn-ghost btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
+              <button class="btn btn-ghost btn-sm btn-icon delete-bundle-btn" data-bundle="${escapeHtml(b.id)}" data-count="${files.length}" data-title="${escapeHtml(titleText)}" title="Bundle'ı sil" aria-label="Bundle'ı sil">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
               </button>
             </td>
           </tr>
         `;
       }).join('');
-
-      // Fix image fallback: /thumb yüklenemezse önce full /dl, o da olmazsa ikon
-      DOM.filesTableBody.querySelectorAll('img.file-item-thumb').forEach(img => {
-        img.addEventListener('error', () => {
-          const dlFallback = img.dataset.fallbackDl;
-          const currentSrc = img.getAttribute('src') || '';
-          if (dlFallback && currentSrc !== dlFallback) {
-            img.setAttribute('src', dlFallback);
-            return;
-          }
-          const mime = img.dataset.fallbackIcon || '';
-          const span = document.createElement('span');
-          span.className = 'file-item-icon';
-          span.innerHTML = getFileIcon(mime);
-          img.replaceWith(span);
-        });
-      });
     }
 
     // Sayfalama
-    DOM.filesPageInfo.textContent = `Sayfa ${data.page} / ${data.pages} (${data.total} dosya)`;
+    DOM.filesPageInfo.textContent = `Sayfa ${data.page} / ${data.pages} (${data.total} bundle)`;
     DOM.filesPrevBtn.disabled = data.page <= 1;
     DOM.filesNextBtn.disabled = data.page >= data.pages;
 
-    // Event listener'lar — row click = preview, delete button = sil
-    document.querySelectorAll('.file-table-row').forEach(row => {
-      row.addEventListener('click', () => openPreview(row.dataset.id, row.dataset.name));
+    // Bundle satırına tıkla → alt dosya listesini aç/kapat.
+    document.querySelectorAll('.bundle-table-row').forEach(row => {
+      row.addEventListener('click', () => toggleBundleRow(row, bundles));
     });
-    document.querySelectorAll('.delete-file-btn').forEach(btn => {
+    // Bundle sil → içindeki tüm dosyaları tek tek sil (admin her dosyayı silebilir).
+    document.querySelectorAll('.delete-bundle-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        e.stopPropagation(); // row click'i engelle
-        deleteFile(btn.dataset.id, btn.dataset.name);
+        e.stopPropagation();
+        const title = btn.dataset.title || 'bundle';
+        const count = btn.dataset.count || '?';
+        if (!confirm(`"${title}" (${count} dosya) bundle'ını tamamen silmek istediğinize emin misiniz?`)) return;
+        deleteBundle(btn.dataset.bundle, bundles);
       });
     });
   } catch (err) {
@@ -448,6 +430,118 @@ async function loadFiles(page = 1) {
       DOM.filesTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-error">Yüklenemedi.</td></tr>';
     }
   }
+}
+
+// Bundle satırını aç/kapat — tıklandığında altına dosya listesi sub-row ekler.
+// bundleData: loadFiles'ten gelen bundles dizisi (id → dosya listesi lookup).
+function toggleBundleRow(row, bundleData) {
+  const bundleId = row.dataset.bundle;
+  const next = row.nextElementSibling;
+  const isOpen = next && next.classList.contains('bundle-files-row');
+
+  // Açık ise kapat.
+  if (isOpen) {
+    next.remove();
+    row.classList.remove('bundle-row-open');
+    return;
+  }
+
+  const b = (bundleData || []).find((x) => x.id === bundleId);
+  const files = Array.isArray(b && b.files) ? b.files : [];
+  if (!files.length) return;
+
+  const filesHtml = files.map(f => {
+    const expired = new Date(f.expire_at) < new Date();
+    const timeLeft = expired ? `<span class="text-error">Süresi doldu</span>` : getTimeLeft(f.expire_at);
+    const isImage = f.mime_type && f.mime_type.startsWith('image/');
+    const showImageThumb = isImage && !f.is_encrypted;
+    const icon = getFileIcon(f.mime_type);
+    const iconOrThumb = showImageThumb
+      ? `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="file-item-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}" data-fallback-dl="/api/files/${f.id}/dl">`
+      : `<span class="file-item-icon">${icon}</span>`;
+    const shortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
+
+    return `
+      <tr class="file-table-row row-clickable bundle-sub-row" data-id="${f.id}" data-name="${escapeHtml(f.filename)}">
+        <td style="padding-left:2.2rem;">${iconOrThumb} <span title="${escapeHtml(f.filename)}">${truncate(f.filename, 30)}</span></td>
+        <td><span class="mono" title="${escapeHtml(f.ip_hash || '')}">${escapeHtml(shortHash)}</span></td>
+        <td>${formatSize(f.file_size)}</td>
+        <td>${f.mime_type || '-'}</td>
+        <td>${timeLeft}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Sub-row: colspan=6 içinde bir nested tablo yerine doğrudan dosya <tr>'leri.
+  // Tek satır açıcı (boş colspan) + dosya satırları birlikte eklenir.
+  const opener = document.createElement('tr');
+  opener.className = 'bundle-files-row';
+  opener.innerHTML = `<td colspan="6" style="padding:0;border:none;"></td>`;
+  row.parentNode.insertBefore(opener, row.nextSibling);
+
+  // Dosya satırlarını açıcının ardına ekle (innerHTML ile topluca).
+  const tmp = document.createElement('tbody');
+  tmp.innerHTML = filesHtml;
+  const fileRows = [...tmp.querySelectorAll('tr')];
+  let anchor = opener;
+  fileRows.forEach(tr => {
+    row.parentNode.insertBefore(tr, anchor.nextSibling);
+    anchor = tr;
+  });
+
+  row.classList.add('bundle-row-open');
+
+  // Sub-row dosyaları için preview + delete wiring.
+  fileRows.forEach(tr => {
+    tr.addEventListener('click', () => openPreview(tr.dataset.id, tr.dataset.name));
+  });
+  fileRows.forEach(tr => {
+    const delBtn = tr.querySelector('.delete-file-btn');
+    if (delBtn) delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteFile(delBtn.dataset.id, delBtn.dataset.name);
+    });
+  });
+
+  // Image thumbnail fallback (/thumb yüklenemezse full /dl, o da olmazsa ikon).
+  fileRows.forEach(tr => {
+    const img = tr.querySelector('img.file-item-thumb');
+    if (!img) return;
+    img.addEventListener('error', () => {
+      const dlFallback = img.dataset.fallbackDl;
+      const currentSrc = img.getAttribute('src') || '';
+      if (dlFallback && currentSrc !== dlFallback) { img.setAttribute('src', dlFallback); return; }
+      const mime = img.dataset.fallbackIcon || '';
+      const span = document.createElement('span');
+      span.className = 'file-item-icon';
+      span.innerHTML = getFileIcon(mime);
+      img.replaceWith(span);
+    });
+  });
+}
+
+// Tüm bundle'ı sil — içindeki dosyaları tek tek DELETE /api/admin/files/:id.
+// FK cascade aslında bundle silince dosyaları da silebilir, ama admin'in
+// per-file endpoint'i güvenli ve cross-session çalışır.
+async function deleteBundle(bundleId, bundleData) {
+  const b = (bundleData || []).find((x) => x.id === bundleId);
+  const files = Array.isArray(b && b.files) ? b.files : [];
+  if (!files.length) { loadFiles(filesPage); return; }
+  let deleted = 0;
+  for (const f of files) {
+    try {
+      const resp = await apiFetch(`/api/admin/files/${f.id}`, { method: 'DELETE' });
+      if (resp.ok) deleted++;
+    } catch (err) {
+      console.error('[deleteBundle] file error', f.id, err);
+    }
+  }
+  loadFiles(filesPage);
 }
 
 // Arama

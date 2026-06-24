@@ -87,8 +87,12 @@
                 </div>
                 <div class="drop-zone-title drop-zone-title-compact" data-i18n="dropZoneTitle">Dosyanızı sürükleyin veya seçin</div>
                 <div class="drop-zone-subtitle" id="max-size-text" data-i18n="sessionMaxSize">Maksimum dosya boyutu: 100 MB</div>
-                <input type="file" id="file-input" class="drop-zone-input" aria-hidden="true">
+                <input type="file" id="file-input" class="drop-zone-input" aria-hidden="true" multiple>
             </div>
+
+            <!-- Seçilen dosyalar kuyruğu (app.js renderQueue buraya .queue-row* basar).
+                 index.html:141 ile aynı; batch refactor'ında burası geride kalmıştı. -->
+            <div id="file-queue" class="file-queue hidden" role="list" aria-live="polite"></div>
 
             <!-- Seçilen Dosya Önizleme -->
             <div id="file-preview" class="file-preview hidden" role="status" aria-live="polite">
@@ -342,6 +346,22 @@
 
 <!-- Toast Container -->
 <div id="toast-container" class="toast-container"></div>
+
+<!-- =====================================================================
+     Upload Progress Tray (kuyruktaki/aktif yüklemeler — sağ alt sabit).
+     index.html:307-317 ile aynı; app.js renderTray buraya batch kartları basar.
+     ===================================================================== -->
+<div id="upload-tray" class="upload-tray hidden" aria-live="polite">
+    <div class="upload-tray-header">
+        <span class="upload-tray-title" data-i18n="trayTitle">Yüklemeler</span>
+        <div class="upload-tray-controls">
+            <span class="upload-tray-count" id="upload-tray-count"></span>
+            <button id="tray-minimize" class="tray-btn" aria-label="Küçült" data-i18n-aria="trayMinimize">—</button>
+            <button id="tray-close" class="tray-btn" aria-label="Kapat" data-i18n-aria="trayClose">✕</button>
+        </div>
+    </div>
+    <div id="upload-tray-body" class="upload-tray-body"></div>
+</div>
 
 <script src="/js/debug.js"></script>
 <script src="/js/crypto.js"></script>

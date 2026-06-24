@@ -782,6 +782,94 @@
     background: rgba(239, 68, 68, 0.1);
 }
 
+/* -------------------------------------------------------------------------
+   Upload queue — .queue-row* (app.js renderQueue emit ettiği gerçek sınıflar)
+   -------------------------------------------------------------------------
+   ÖNCEKİ .queue-item* kuralları app.js'in eski sınıf adlarıydı; refactor
+   (commit 8d8e10d) .queue-row*'a geçti ama CSS geride kaldı → image thumb
+   unstyled, intrinsic (çok büyük) render ediyordu. Aşağıdaki .queue-row*
+   kuralları renderQueue'nun gerçekten ürettiği DOM'la birebir eşleşir.
+   queue-item'i silmiyoruz (geri uyumluluk — başka yerde emit ediliyor olabilir).
+   ------------------------------------------------------------------------- */
+.queue-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+}
+
+.queue-row.queue-row-invalid {
+    border-color: var(--color-error);
+}
+
+.queue-row-icon {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+}
+
+/* Ana sayfada image/video thumbnail'i intrinsic boyutta taşmasını önler.
+   queue-row-icon 48×48 kutusunun içine object-fit:cover ile sığar. */
+.queue-row-icon img.preview-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    display: block;
+}
+
+.queue-row-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.queue-row-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.queue-row-size {
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.queue-row-warn {
+    color: var(--color-error);
+}
+
+.queue-row-remove {
+    background: transparent;
+    border: none;
+    color: var(--color-text-dark);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.15rem 0.35rem;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.queue-row-remove:hover {
+    color: var(--color-error);
+    background: rgba(239, 68, 68, 0.1);
+}
+
 /* =========================================================================
    Upload Tray (index.html #upload-tray — sabit alt-sağ panel)
    ========================================================================= */
@@ -816,6 +904,10 @@
     padding: 0.7rem 0.9rem;
     border-bottom: 1px solid var(--color-border);
 }
+
+/* Başlık alanı tıklanabilir (minimize toggle) — görsel ipucu. */
+.upload-tray-title { cursor: pointer; }
+.upload-tray-title:hover { opacity: 0.8; }
 
 .upload-tray-title {
     font-family: var(--font-display);
@@ -999,9 +1091,18 @@
     grid-template-columns: 1fr;
 }
 
+/* Medya-ızgara: tek sütun → ~420px kartlar. Eski 300px kart dardı, desktop'ta
+   az kart sığıyordu; 420px thumb ızgarasına yer açar. 640px altında tek sütun. */
 @media (min-width: 640px) {
     .file-list {
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .file-list {
+        grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+        gap: 1.25rem;
     }
 }
 
@@ -1010,15 +1111,20 @@
     flex-direction: column;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 1.1rem;
-    transition: border-color var(--transition-normal), box-shadow var(--transition-normal), opacity var(--transition-normal);
+    /* admin-redesign.css idiomu: inset top-hairline kart yüzüne derinlik katar. */
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal),
+                opacity var(--transition-normal), transform var(--transition-normal);
     overflow: hidden;
+    cursor: pointer;
 }
 
 .bundle-card:hover {
     border-color: var(--color-border-active);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-md), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    transform: translateY(-2px);
 }
 
 .bundle-card.expired {
@@ -1055,8 +1161,10 @@
 }
 
 .bundle-card-title {
-    font-size: 0.9375rem;
-    font-weight: 600;
+    /* admin-redesign idiomu: daha belirgin başlık (tighter tracking). */
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: var(--color-text-main);
     display: flex;
     align-items: center;
@@ -1085,12 +1193,75 @@
     font-weight: 500;
 }
 
-/* Thumbnail önizleme şeridi */
-.bundle-card-thumbs {
+/* Çok dosyalı kart: aksiyon butonları (kopyala/sil) üst satırda sağda inline. */
+.bundle-card-actions-inline {
+    margin-left: auto;
+    flex-shrink: 0;
     display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* -------------------------------------------------------------------------
+   Tek dosyalık bundle kartı — yatay compact (thumb sol, ad/boyut/süre orta,
+   indir+sil sağda). Kopyala butonu yok; karta basınca preview açılır.
+   ------------------------------------------------------------------------- */
+.bundle-card.single { padding: 0.85rem 1.1rem; }
+
+.bundle-card-single {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.bundle-card-single-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.bundle-thumb-single {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+}
+
+.bundle-card-single-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.bundle-card-single-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.35rem;
+}
+
+.bundle-card-single-actions {
+    display: flex;
+    align-items: center;
     gap: 0.4rem;
-    margin: 0.85rem 0 0.25rem;
-    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+/* Thumbnail ızgarası — 3'lü kare ızgara (medya-ızgara redesign).
+   Eski flex ızgara 48px thumb'ları küçük gösteriyordu; 1fr + aspect-ratio:1
+   daha büyük, görsel odaklı thumb'lar üretir (geniş kartta ~72px+). */
+.bundle-card-thumbs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin: 0.9rem 0 0.4rem;
 }
 
 .bundle-card-thumbs:empty {
@@ -1098,17 +1269,17 @@
 }
 
 .bundle-thumb {
-    width: 48px;
-    height: 48px;
+    width: 100%;
+    aspect-ratio: 1 / 1;
     object-fit: cover;
     border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
-    flex-shrink: 0;
+    background: var(--color-surface);
 }
 
 .bundle-thumb-placeholder {
-    width: 48px;
-    height: 48px;
+    width: 100%;
+    aspect-ratio: 1 / 1;
     border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
     background: var(--color-surface);
@@ -1116,7 +1287,192 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+}
+
+/* 3'lü ızgaranın 4. hücresinde kalan image'leri gösteren rozet. */
+.bundle-thumb-more {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+   Bundle Modal — /session sayfa içi unified modal (#preview-content içinde).
+   İki modu var: liste (thumb ızgara + köşe seç butonu) ve önizleme (tek dosya).
+   bundle.css YÜKLENMEDIĞI için kendi kurallarımızı burada tutarız.
+   ------------------------------------------------------------------------- */
+
+/* Üst bar: Geri butonu (önizleme modunda) + bundle başlığı + seç sayacı. */
+.bundle-modal-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+}
+.bundle-modal-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.825rem;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.3rem 0.55rem;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.bundle-modal-back:hover {
+    border-color: var(--color-border-active);
+    color: var(--color-text);
+}
+.bundle-modal-meta {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+}
+
+/* Liste modu — kart görünümü thumb ızgarası (Dosyalarım kartıyla aynı dilde). */
+.bundle-modal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+    max-height: 58vh;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+.bundle-modal-thumb {
+    position: relative;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+.bundle-modal-thumb:hover {
+    border-color: var(--color-border-active);
+    transform: translateY(-2px);
+}
+/* Seçili thumb — belirgin accent çerçeve. */
+.bundle-modal-thumb.selected {
+    border-color: rgb(var(--color-primary-rgb));
+    box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.25);
+}
+
+.bundle-modal-thumb-media {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: var(--color-bg);
+}
+.bundle-modal-thumb-icon {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+}
+.bundle-modal-thumb-icon svg {
+    width: 40%;
+    height: 40%;
+}
+.bundle-modal-thumb-info {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.75rem;
+}
+.bundle-modal-thumb-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+}
+.bundle-modal-thumb-size {
+    color: var(--color-text-muted);
+    font-size: 0.68rem;
+    margin-top: 0.1rem;
+}
+
+/* Köşe seç butonu — hover'da görünür; bir dosya seçilince hepsinde kalıcı görünür. */
+.bundle-modal-select-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity var(--transition-fast), transform var(--transition-fast),
+                background var(--transition-fast), border-color var(--transition-fast);
+    z-index: 2;
+}
+.bundle-modal-thumb:hover .bundle-modal-select-btn,
+.bundle-modal-grid.has-selection .bundle-modal-select-btn {
+    opacity: 1;
+    transform: scale(1);
+}
+/* Seçili thumb'da buton accent dolgulu + check işareti. */
+.bundle-modal-select-btn.selected {
+    background: rgb(var(--color-primary-rgb));
+    border-color: rgb(var(--color-primary-rgb));
+    color: #fff;
+    opacity: 1;
+    transform: scale(1);
+}
+.bundle-modal-select-btn svg {
+    width: 0.85rem;
+    height: 0.85rem;
+}
+.bundle-modal-select-btn .check-on { display: none; }
+.bundle-modal-select-btn .check-off { display: block; }
+.bundle-modal-select-btn.selected .check-on { display: block; }
+.bundle-modal-select-btn.selected .check-off { display: none; }
+
+/* Şifreli bundle — zip/çoklu indirme yok; thumb yine önizlenebilir. */
+.bundle-modal-thumb.encrypted .bundle-modal-select-btn { display: none; }
+
+/* Alt aksiyon satırı: Tümünü seç + Seçilenleri indir. */
+.bundle-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.95rem;
+    flex-wrap: wrap;
+}
+
+.bundle-modal-selectall {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    margin-right: auto;
+}
+
+.bundle-modal-selectall input {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
 }
 
 .bundle-card-bottom {

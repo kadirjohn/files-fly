@@ -46,11 +46,15 @@
     }
 
     // --- Video ---
+    // Inline sizing (audio:70 ve pdf:83 ile aynı patern): bundle.css/file-page.css'in
+    // video kuralı bu sayfada yüklenmeyebilir → element intrinsic boyutta render eder,
+    // taşar/kırılır. Inline vermek her sayfada (file.html, /session, /b/:id) garanti.
     if (mimeType.startsWith('video/')) {
       const v = document.createElement('video');
       v.controls = true;
       v.preload = 'metadata';
       v.playsInline = true;
+      v.style.cssText = 'width:100%;max-height:64vh;border-radius:var(--radius-md);display:block;margin:0 auto;';
       const s = document.createElement('source');
       s.src = src;
       s.type = mimeType;
