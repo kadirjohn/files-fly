@@ -379,29 +379,63 @@ async function loadFiles(page = 1) {
         const lockBadge = b.is_encrypted
           ? `<span class="encrypted-lock-badge" title="Parola korumalı"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`
           : '';
-        const titleText = b.title || `${b.file_count} dosya`;
         const bundleIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" class="file-item-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
-        // Bundle satırı önizlemesi: ilk şifresiz image dosyanın /thumb'ını küçük
-        // thumbnail olarak göster (sub-row file-item-thumb ile aynı kaynak). Image
-        // yoksa (video/pdf/text/şifreli) bundle ikonu kalsın. Böylece "smoke" gibi
-        // başlık-yalnız görünüm yerine gerçek görsel önizleme olur.
+        const sampleIp = files[0] && files[0].ip_hash ? files[0].ip_hash : (b.session_id || '-');
+        const shortHash = (sampleIp && sampleIp.length > 12) ? sampleIp.substring(0, 12) + '...' : sampleIp;
+        const expandIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="bundle-expand-caret"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+        // ── Tek dosyalık bundle: caret/expand YOK. Satırın tamamı tıklanabilir
+        // → openPreview(tek dosya). Başlık = dosya adı; tür = gerçek MIME.
+        if (files.length === 1) {
+          const f = files[0];
+          const isImage = (f.mime_type || '').startsWith('image/') && !f.is_encrypted;
+          const iconOrThumb = isImage
+            ? `<img src="/api/files/${escapeHtml(f.id)}/thumb" alt="" loading="lazy" class="file-item-thumb bundle-row-thumb" data-fallback-icon="${escapeHtml(f.mime_type || '')}">`
+            : `<span class="file-item-icon">${getFileIcon(f.mime_type)}</span>`;
+          const fShortHash = f.ip_hash ? f.ip_hash.substring(0, 12) + '...' : '-';
+          const fExpired = new Date(f.expire_at) < new Date();
+          const fTimeLeft = fExpired ? `${expiredSvg} Süresi doldu` : getTimeLeft(f.expire_at);
+          return `
+            <tr class="file-table-row row-clickable single-bundle-row" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.filename)}">
+              <td>${iconOrThumb} <strong title="${escapeHtml(f.filename)}">${escapeHtml(truncate(f.filename, 30))}</strong> ${lockBadge}</td>
+              <td><span class="mono" title="${escapeHtml(f.ip_hash || '')}">${escapeHtml(fShortHash)}</span></td>
+              <td>${formatSize(f.file_size)}</td>
+              <td>${f.mime_type || '-'}</td>
+              <td>${fTimeLeft}</td>
+              <td>
+                <div class="admin-row-actions">
+                  <button class="btn btn-ghost btn-sm btn-icon admin-download-btn" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.filename)}" title="İndir" aria-label="İndir">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button class="btn btn-danger btn-sm btn-icon delete-file-btn" data-id="${escapeHtml(f.id)}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }
+
+        // ── Çoklu dosya bundle: [N dosya] rozeti her zaman görünür. Başlık =
+        // bundle başlığı (yoksa "N dosya"). Caret ile dosya listesi açılır.
+        const titleText = b.title || `${files.length} dosya`;
         const firstImage = files.find(f => (f.mime_type || '').startsWith('image/') && !f.is_encrypted);
         const bundleThumb = firstImage
           ? `<img src="/api/files/${escapeHtml(firstImage.id)}/thumb" alt="" loading="lazy" class="file-item-thumb bundle-row-thumb" data-fallback-icon="bundle">`
           : bundleIcon;
-        // IP kolonu: bundle içindeki ilk dosyanın ip_hash'i (örnek).
-        const sampleIp = files[0] && files[0].ip_hash ? files[0].ip_hash : (b.session_id || '-');
-        const shortHash = (sampleIp && sampleIp.length > 12) ? sampleIp.substring(0, 12) + '...' : sampleIp;
-        // Tür kolonu: tek dosyalık bundle → tür, çoklu → "N dosya".
-        const typeCell = files.length === 1 ? (files[0].mime_type || '-') : `${files.length} dosya`;
-        const expandIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="bundle-expand-caret"><polyline points="6 9 12 15 18 9"/></svg>`;
+        const countBadge = `<span class="bundle-count-badge" title="${files.length} dosya bu bundle'da">${files.length} dosya</span>`;
 
         return `
-          <tr class="bundle-table-row row-clickable" data-bundle="${escapeHtml(b.id)}" data-files="${files.length}">
-            <td>${bundleThumb} <strong>${escapeHtml(titleText)}</strong> ${lockBadge} ${expandIcon}</td>
+          <tr class="bundle-table-row" data-bundle="${escapeHtml(b.id)}" data-files="${files.length}">
+            <td>
+              <span class="bundle-caret-toggle" data-bundle="${escapeHtml(b.id)}" title="Dosyaları göster/gizle" aria-label="Dosyaları göster/gizle" role="button" tabindex="0">
+                ${expandIcon}
+              </span>
+              ${bundleThumb} <strong>${escapeHtml(titleText)}</strong> ${countBadge} ${lockBadge}
+            </td>
             <td><span class="mono" title="${escapeHtml(sampleIp || '')}">${escapeHtml(shortHash)}</span></td>
             <td>${formatSize(b.total_size)}</td>
-            <td>${typeCell}</td>
+            <td>${countBadge}</td>
             <td>${timeLeft}</td>
             <td>
               <button class="btn btn-ghost btn-sm btn-icon delete-bundle-btn" data-bundle="${escapeHtml(b.id)}" data-count="${files.length}" data-title="${escapeHtml(titleText)}" title="Bundle'ı sil" aria-label="Bundle'ı sil">
@@ -418,9 +452,35 @@ async function loadFiles(page = 1) {
     DOM.filesPrevBtn.disabled = data.page <= 1;
     DOM.filesNextBtn.disabled = data.page >= data.pages;
 
-    // Bundle satırına tıkla → alt dosya listesini aç/kapat.
-    document.querySelectorAll('.bundle-table-row').forEach(row => {
-      row.addEventListener('click', () => toggleBundleRow(row, bundles));
+    // Tek dosyalık bundle satırı → tıkla önizle (caret/expand yok).
+    document.querySelectorAll('.single-bundle-row').forEach(row => {
+      row.addEventListener('click', () => openPreview(row.dataset.id, row.dataset.name));
+      const dlBtn = row.querySelector('.admin-download-btn');
+      if (dlBtn) dlBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerAdminDownload(dlBtn.dataset.id, dlBtn.dataset.name);
+      });
+      const delBtn = row.querySelector('.delete-file-btn');
+      if (delBtn) delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteFile(delBtn.dataset.id, delBtn.dataset.name);
+      });
+    });
+    // Çoklu bundle caret'i → alt dosya listesini aç/kapat (sadece toggle butonu,
+    // ana satır tıklanabilir değildir — tek dosya satırı ile karışmaz).
+    document.querySelectorAll('.bundle-caret-toggle').forEach(caret => {
+      caret.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = caret.closest('.bundle-table-row');
+        if (row) toggleBundleRow(row, bundles);
+      });
+      caret.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const row = caret.closest('.bundle-table-row');
+          if (row) toggleBundleRow(row, bundles);
+        }
+      });
     });
     // Bundle sil → içindeki tüm dosyaları tek tek sil (admin her dosyayı silebilir).
     document.querySelectorAll('.delete-bundle-btn').forEach(btn => {
@@ -456,9 +516,16 @@ function toggleBundleRow(row, bundleData) {
   const next = row.nextElementSibling;
   const isOpen = next && next.classList.contains('bundle-files-row');
 
-  // Açık ise kapat.
+  // Açık ise kapat: opener + onu izleyen tüm bundle-sub-row dosya satırlarını
+  // kaldır (sadece opener'ı silmek dosya satırlarını DOM'da bırakır → her
+  // aç/kapat'ta satırlar çoğalır).
   if (isOpen) {
-    next.remove();
+    let cur = next;
+    while (cur && (cur.classList.contains('bundle-files-row') || cur.classList.contains('bundle-sub-row'))) {
+      const after = cur.nextElementSibling;
+      cur.remove();
+      cur = after;
+    }
     row.classList.remove('bundle-row-open');
     return;
   }
@@ -486,9 +553,14 @@ function toggleBundleRow(row, bundleData) {
         <td>${f.mime_type || '-'}</td>
         <td>${timeLeft}</td>
         <td>
-          <button class="btn btn-ghost btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-          </button>
+          <div class="admin-row-actions">
+            <button class="btn btn-ghost btn-sm btn-icon admin-download-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="İndir" aria-label="İndir">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button class="btn btn-danger btn-sm btn-icon delete-file-btn" data-id="${f.id}" data-name="${escapeHtml(f.filename)}" title="Sil" aria-label="Sil">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -518,6 +590,11 @@ function toggleBundleRow(row, bundleData) {
     tr.addEventListener('click', () => openPreview(tr.dataset.id, tr.dataset.name));
   });
   fileRows.forEach(tr => {
+    const dlBtn = tr.querySelector('.admin-download-btn');
+    if (dlBtn) dlBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerAdminDownload(dlBtn.dataset.id, dlBtn.dataset.name);
+    });
     const delBtn = tr.querySelector('.delete-file-btn');
     if (delBtn) delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1753,6 +1830,28 @@ DOM.settingsForm.addEventListener('click', async (e) => {
 // =========================================================================
 // Yardımcılar
 // =========================================================================
+
+// Admin dosya satırı indir butonu → /api/files/:id/dl (Content-Disposition: attachment).
+// fetch→blob→anchor ile gerçek kaydetmeyi zorla (window.location inline açabilir).
+// ?preview=1 → cloud backend'te same-origin stream (cross-origin redirect güvenilmez).
+async function triggerAdminDownload(fileId, filename) {
+  if (!fileId) return;
+  try {
+    const r = await fetch('/api/files/' + fileId + '/dl?preview=1');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const buf = await r.blob();
+    const url = URL.createObjectURL(buf);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'dosya';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } catch (e) {
+    alert('Dosya indirilemedi: ' + e.message);
+  }
+}
 
 function formatSize(bytes) {
   if (!bytes || bytes === 0) return '0 B';

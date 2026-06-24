@@ -154,7 +154,7 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
       });
     }
   } catch (err) {
-    console.error('[Upload] Chunk error:', err.message);
+    console.error('[Upload] Chunk error:', err.message, err.stack);
 
     if (err.message.includes('exceeds maximum')) {
       return sendError(res, 413, err.message);
@@ -165,6 +165,9 @@ addRoute('POST', '/api/upload/chunk', async (req, res, params, body) => {
     }
     if (err.message.includes('not allowed')) {
       return sendError(res, 415, err.message);
+    }
+    if (err.message.includes('EntityTooLarge') || err.message.includes('maximum allowed size') || err.message.includes('exceeds the maximum')) {
+      return sendError(res, 413, 'File size exceeds the storage backend maximum allowed size. Check your Supabase bucket limits.');
     }
     if (err.message.includes('Expire time')) {
       return sendError(res, 400, err.message);

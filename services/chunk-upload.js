@@ -318,7 +318,7 @@ async function finalizeUpload(fileId, dir, metadata) {
       writeStream.end((err) => err ? reject(err) : resolve());
     });
 
-    // Stream ile bucket'a yükle
+    // Stream ile bucket'a yükle (s3-base tek parça/multipart kararını verir)
     const readStream = fs.createReadStream(assembledTmpPath);
     try {
       await provider.putObject(storageKey, readStream, { contentType: mimeType });

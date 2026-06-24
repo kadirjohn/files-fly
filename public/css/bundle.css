@@ -74,82 +74,158 @@
 }
 
 /* -------------------------------------------------------------------------
-   Bundle File List (alıcı — checkbox + ikon + ad + boyut + önizle/indir)
+   Bundle File Grid (alıcı — thumb ızgara: image önizleme + köşe-seç + ad/boyut)
+   Dosyalarım (session.js renderBundleFileList / .bundle-modal-*) ile aynı dilde.
+   Image kartlar /thumb yükler → preview cache'ini açılışta ısırır (Bug C çözümü).
    ------------------------------------------------------------------------- */
-.bundle-file-list {
-    display: flex;
-    flex-direction: column;
+.bundle-recv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.4rem;
 }
 
-.bundle-file-row {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    padding: 0.7rem 0.25rem;
-    border-bottom: 1px solid var(--color-border);
-    transition: background var(--transition-fast);
-}
-
-.bundle-file-row:hover {
-    background: var(--color-surface-hover);
-}
-
-.bundle-file-row:last-child {
-    border-bottom: none;
-}
-
-.bundle-file-row .file-check {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--color-primary);
+.bundle-recv-thumb {
+    position: relative;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    overflow: hidden;
     cursor: pointer;
-    flex-shrink: 0;
-    border-radius: 4px;
+    transition: border-color var(--transition-fast), transform var(--transition-fast),
+                box-shadow var(--transition-fast);
+}
+.bundle-recv-thumb:hover {
+    border-color: var(--color-border-active);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+/* Seçili thumb — accent çerçeve (.bundle-modal-thumb.selected ile aynı). */
+.bundle-recv-thumb.selected {
+    border-color: rgb(var(--color-primary-rgb));
+    box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.25);
 }
 
-.bundle-file-row .file-icon {
-    color: var(--color-text-muted);
-    flex-shrink: 0;
+.bundle-recv-thumb-media {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: var(--color-bg);
+}
+.bundle-recv-thumb-icon {
+    width: 100%;
+    aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
+    color: var(--color-text-muted);
 }
-
-.bundle-file-row .file-name {
-    flex: 1;
-    min-width: 0;
-    font-size: 0.9375rem;
-    font-weight: 500;
+.bundle-recv-thumb-icon svg {
+    width: 40%;
+    height: 40%;
+}
+.bundle-recv-thumb-info {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.75rem;
+}
+.bundle-recv-thumb-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-.bundle-file-row .file-size {
-    font-size: 0.8125rem;
-    color: var(--color-text-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.bundle-file-row .file-preview,
-.bundle-file-row .file-download {
-    flex-shrink: 0;
-}
-
-/* Tek dosyalık bundle → checkbox + önizle butonu gizli, büyük detay görünümü */
-.bundle-file-list.single .bundle-file-row .file-check,
-.bundle-file-list.single .bundle-file-row .file-preview {
-    display: none;
-}
-
-.bundle-file-list.single .bundle-file-row {
-    padding: 1rem 0.25rem;
-}
-
-.bundle-file-list.single .bundle-file-row .file-name {
-    font-size: 1.125rem;
     font-weight: 600;
+    color: var(--color-text-main);
+}
+.bundle-recv-thumb-size {
+    color: var(--color-text-muted);
+    font-size: 0.68rem;
+    margin-top: 0.1rem;
+}
+
+/* Köşe seç butonu — hover'da görünür; bir dosya seçilince hepsinde kalıcı görünür. */
+.bundle-recv-select-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity var(--transition-fast), transform var(--transition-fast),
+                background var(--transition-fast), border-color var(--transition-fast);
+    z-index: 2;
+}
+.bundle-recv-thumb:hover .bundle-recv-select-btn,
+.bundle-recv-grid.has-selection .bundle-recv-select-btn {
+    opacity: 1;
+    transform: scale(1);
+}
+/* Seçili thumb'da buton accent dolgulu + check işareti. */
+.bundle-recv-select-btn.selected {
+    background: rgb(var(--color-primary-rgb));
+    border-color: rgb(var(--color-primary-rgb));
+    color: #fff;
+    opacity: 1;
+    transform: scale(1);
+}
+.bundle-recv-select-btn svg {
+    width: 0.85rem;
+    height: 0.85rem;
+}
+
+/* -------------------------------------------------------------------------
+   Tek dosyalık bundle → ortalanmış büyük kart (tıkla önizle).
+   ------------------------------------------------------------------------- */
+.bundle-recv-single {
+    max-width: 440px;
+    margin: 1rem auto 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+    transition: border-color var(--transition-fast), transform var(--transition-fast),
+                box-shadow var(--transition-fast);
+}
+.bundle-recv-single:hover {
+    border-color: var(--color-border-active);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+.bundle-recv-single .bundle-recv-thumb-media {
+    aspect-ratio: auto;
+    max-height: 50vh;
+    width: 100%;
+    object-fit: contain;
+    background: var(--color-bg);
+}
+.bundle-recv-single .bundle-recv-thumb-icon {
+    aspect-ratio: auto;
+    padding: 3rem 1rem;
+}
+.bundle-recv-single-info {
+    padding: 0.85rem 1.1rem;
+}
+.bundle-recv-single-name {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-text-main);
+    word-break: break-word;
+}
+.bundle-recv-single-size {
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    margin-top: 0.2rem;
 }
 
 /* -------------------------------------------------------------------------
@@ -298,15 +374,14 @@
         font-size: 1.375rem;
     }
 
-    .bundle-file-row {
-        flex-wrap: wrap;
-        gap: 0.6rem;
+    /* Dar ekranda thumb grid 2'li; tek dosya kartı full-width. */
+    .bundle-recv-grid {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        gap: 0.5rem;
     }
 
-    .bundle-file-row .file-name {
-        white-space: normal;
-        flex-basis: 100%;
-        order: 3;
+    .bundle-recv-single {
+        max-width: 100%;
     }
 
     .bundle-actions {

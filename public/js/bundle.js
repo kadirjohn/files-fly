@@ -99,33 +99,97 @@
     if (bundle.is_encrypted) dom.encBadge.classList.remove('hidden');
     startCountdown();
 
-    // Tek dosya → detay görünümü (büyük inline preview + indir).
+    const isEncrypted = !!bundle.is_encrypted;
     const single = bundle.files.length === 1;
     dom.list.innerHTML = '';
     dom.list.classList.toggle('single', single);
 
-    bundle.files.forEach((f) => {
-      const row = document.createElement('div');
-      row.className = 'bundle-file-row';
-      row.innerHTML =
-        '<input type="checkbox" class="file-check" data-id="' + f.id + '">' +
-        '<span class="file-icon" data-mime="' + esc(f.mime_type || '') + '">' + fileIconSvg(f.mime_type) + '</span>' +
-        '<span class="file-name" title="' + esc(f.filename) + '">' + esc(f.filename) + '</span>' +
-        '<span class="file-size">' + formatSize(f.file_size) + '</span>' +
-        '<button class="btn btn-ghost btn-sm file-preview" data-id="' + f.id + '">' + t('bundlePreview') + '</button>' +
-        '<button class="btn btn-ghost btn-sm file-download" data-id="' + f.id + '">' + t('bundleDownload') + '</button>';
-      dom.list.appendChild(row);
-    });
+    // Köşe seç butonu: check (seçili) / plus (boş). session.js:renderBundleFileList
+    // ile aynı svg dili. Şifreli bundle → seç butonu render edilmez (zip yok).
+    const selBtnSvg = (on) => on
+      ? '<svg class="check-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg class="check-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 
-    // Events
-    dom.list.querySelectorAll('.file-preview').forEach((b) => b.addEventListener('click', () => openPreview(b.dataset.id)));
-    dom.list.querySelectorAll('.file-download').forEach((b) => b.addEventListener('click', () => downloadOne(b.dataset.id)));
-    dom.list.querySelectorAll('.file-check').forEach((c) => c.addEventListener('change', updateSelected));
-
-    dom.selectAll.onchange = (e) => {
-      dom.list.querySelectorAll('.file-check').forEach((c) => { c.checked = e.target.checked; });
-      updateSelected();
+    // Bir dosyanın medya içeriği: image → compressed /thumb (cache'lenir, aynı anda
+    // preview cache'ini ısırır = Bug C çözümü); değilse dosya-tip ikonu. Şifreli
+    // image'lerde /thumb ciphertext döner → error → ikona düşer (session.js ile aynı).
+    const mediaFor = (f) => {
+      const isImg = (f.mime_type || '').startsWith('image/') && !isEncrypted;
+      return isImg
+        ? '<img class="bundle-recv-thumb-media" src="/api/files/' + f.id + '/thumb" data-fallback="/api/files/' + f.id + '/dl?preview=1" alt="' + esc(f.filename) + '" loading="lazy">'
+        : '<div class="bundle-recv-thumb-icon">' + fileIconSvg(f.mime_type) + '</div>';
     };
+
+    if (single) {
+      // Tek dosya → ortalanmış büyük kart. Tıkla → önizle. "Hepsini indir" = bu dosya.
+      const f = bundle.files[0];
+      const card = document.createElement('div');
+      card.className = 'bundle-recv-single';
+      card.dataset.id = f.id;
+      card.title = f.filename;
+      card.innerHTML =
+        mediaFor(f) +
+        '<div class="bundle-recv-single-info">' +
+          '<div class="bundle-recv-single-name">' + esc(f.filename) + '</div>' +
+          '<div class="bundle-recv-single-size">' + formatSize(f.file_size) + '</div>' +
+        '</div>';
+      card.addEventListener('click', () => openPreview(f.id));
+      dom.list.appendChild(card);
+      // Tek image: thumb error → /dl fallback (önizleme değil, kart görseli için).
+      const img = card.querySelector('img.bundle-recv-thumb-media');
+      if (img) attachThumbFallback(img, f);
+    } else {
+      // Çoklu → thumb grid. Her kart: medya + köşe seç butonu + ad/boyut.
+      // Tıkla → önizle; seç butonu → seçim toggle (stopPropagation).
+      const grid = document.createElement('div');
+      grid.className = 'bundle-recv-grid';
+      grid.id = 'bundle-recv-grid';
+
+      bundle.files.forEach((f) => {
+        const thumb = document.createElement('div');
+        thumb.className = 'bundle-recv-thumb';
+        thumb.dataset.id = f.id;
+        thumb.title = f.filename;
+        thumb.innerHTML =
+          mediaFor(f) +
+          (isEncrypted ? '' : '<button class="bundle-recv-select-btn" data-id="' + f.id + '" aria-label="' + t('bundleModalSelect') + '" title="' + t('bundleModalSelect') + '">' + selBtnSvg(false) + '</button>') +
+          '<div class="bundle-recv-thumb-info">' +
+            '<div class="bundle-recv-thumb-name">' + esc(f.filename) + '</div>' +
+            '<div class="bundle-recv-thumb-size">' + formatSize(f.file_size) + '</div>' +
+          '</div>';
+        grid.appendChild(thumb);
+      });
+      dom.list.appendChild(grid);
+
+      // Image thumb error → /dl, o da olmazsa ikon. session.js:712-727 patterni.
+      grid.querySelectorAll('img.bundle-recv-thumb-media').forEach((img) => {
+        const fid = img.closest('.bundle-recv-thumb').dataset.id;
+        const f = bundle.files.find((x) => x.id === fid);
+        attachThumbFallback(img, f);
+      });
+
+      // Köşe seç butonu → seçim toggle + grid'e has-selection işaretle (hepsinde görünür).
+      grid.querySelectorAll('.bundle-recv-select-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleSelect(btn.dataset.id);
+        });
+      });
+
+      // Thumb'a tıkla → önizle (seç butonuna basıldıysa gitme).
+      grid.querySelectorAll('.bundle-recv-thumb').forEach((thumb) => {
+        thumb.addEventListener('click', (e) => {
+          if (e.target.closest('.bundle-recv-select-btn')) return;
+          openPreview(thumb.dataset.id);
+        });
+      });
+
+      dom.selectAll.onchange = (e) => {
+        if (e.target.checked) bundle.files.forEach((f) => selectedSet.add(f.id));
+        else selectedSet.clear();
+        syncSelectUI();
+      };
+    }
 
     // Şifreli: zip desteklenmez → tek tek indir. Seçilenler butonu kapalı.
     if (bundle.is_encrypted) {
@@ -135,9 +199,48 @@
     dom.dlAll.addEventListener('click', () => (bundle.is_encrypted ? downloadAllIndividually() : downloadZip(null)));
     dom.dlSelected.addEventListener('click', () => downloadZip(selectedIds()));
 
-    // Tek dosyalık bundle → preview'ı otomatik aç.
-    if (single && bundle.files[0]) openPreview(bundle.files[0].id);
+    updateSelected();
+  }
 
+  // Image thumb yüklenmezse /dl'ye düş, o da olmazsa dosya ikonuna dön.
+  // session.js:renderBundleFileList ile aynı patern — receiver'a uyarlandı.
+  function attachThumbFallback(img, file) {
+    img.addEventListener('error', () => {
+      const fb = img.dataset.fallback;
+      if (fb && img.getAttribute('src') !== fb) {
+        img.setAttribute('src', fb);
+      } else {
+        const thumb = img.closest('.bundle-recv-thumb, .bundle-recv-single');
+        if (thumb) {
+          img.outerHTML = '<div class="bundle-recv-thumb-icon">' + fileIconSvg(file && file.mime_type) + '</div>';
+        }
+      }
+    });
+  }
+
+  // Seçimi toggle et: selectedSet + ilgili thumb/buton görsel durumunu güncelle.
+  const selectedSet = new Set();
+  function toggleSelect(fileId) {
+    if (selectedSet.has(fileId)) selectedSet.delete(fileId);
+    else selectedSet.add(fileId);
+    syncSelectUI();
+  }
+
+  // Tüm thumb'ların seçili durumunu selectedSet ile senkronla + "Seçilenleri indir" sayacı.
+  function syncSelectUI() {
+    const grid = dom.list.querySelector('#bundle-recv-grid');
+    if (grid) {
+      grid.classList.toggle('has-selection', selectedSet.size > 0);
+      grid.querySelectorAll('.bundle-recv-thumb').forEach((thumb) => {
+        const on = selectedSet.has(thumb.dataset.id);
+        thumb.classList.toggle('selected', on);
+        const btn = thumb.querySelector('.bundle-recv-select-btn');
+        if (btn) btn.classList.toggle('selected', on);
+      });
+    }
+    // select-all checkbox'ı yarı/dolu durumunu yansıt (basit: hepsi seçiliyse dolu).
+    const allIds = bundle.files.map((f) => f.id);
+    dom.selectAll.checked = allIds.length > 0 && allIds.every((id) => selectedSet.has(id));
     updateSelected();
   }
 
@@ -237,7 +340,8 @@
   }
 
   function selectedIds() {
-    return [...dom.list.querySelectorAll('.file-check:checked')].map((c) => c.dataset.id);
+    // Seçim artık köşe butonlarıyla (selectedSet) yönetiliyor — checkbox değil.
+    return [...selectedSet];
   }
   function updateSelected() {
     const ids = selectedIds();

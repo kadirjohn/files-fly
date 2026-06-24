@@ -3,6 +3,8 @@
 
 const crypto = require('crypto');
 const { query } = require('./database');
+const storage = require('./storage');
+const { deleteThumb } = require('./storage-service');
 
 const SALT_LENGTH = 16; // matches crypto.js client (PBKDF2 salt)
 
@@ -90,10 +92,60 @@ async function getMyBundles(sessionId, { page = 1, limit = 20 } = {}) {
 }
 
 /**
- * Delete a bundle (cascade removes its files). Ownership-checked against sessionId.
+ * Delete a bundle AND its storage objects (cascade only removes DB rows, not blobs).
+ * Ownership-checked against sessionId. Matches cleanupExpiredBundles' pattern:
+ *   1. fetch the bundle's files (storage_backend + storage_key)
+ *   2. delete each object from its backend (error → log + continue, orphan blob)
+ *   3. delete each thumbnail cache (local, best-effort)
+ *   4. delete the bundle row → FK ON DELETE CASCADE removes files rows
+ * Without step 1-3 the physical blob is orphaned in the bucket (only the DB row dies).
  * @returns {Promise<boolean>} true if deleted, false if not owner / not found
  */
 async function deleteBundle(bundleId, sessionId) {
+  // Önce sahiplik doğrula + bundle'ın dosyalarını çek (silmeden önce, çünkü
+  // cascade files satırlarını yok eder — o noktadan sonra storage_key kaybolur).
+  const filesRes = await query(
+    `SELECT f.id, f.storage_backend, f.storage_key
+     FROM files f
+     JOIN bundles b ON b.id = f.bundle_id
+     WHERE b.id = $1 AND b.session_id = $2`,
+    [bundleId, sessionId]
+  );
+
+  // Sahip değil veya bundle yok → hiçbir şey silme.
+  // (filesRes boş olabilir çünkü (a) sahip değil / yok, (b) sahip ama dosya yok.
+  //  Ayırt etmek için bundle satırını ayrıca kontrol et.)
+  if (filesRes.rows.length === 0) {
+    const owns = await query(
+      `SELECT 1 FROM bundles WHERE id = $1 AND session_id = $2`,
+      [bundleId, sessionId]
+    );
+    if ((owns.rowCount || 0) === 0) return false; // sahip değil / bulunamadı
+    // sahip ama dosya yok → sadece bundle satırını sil (object yok)
+    const del = await query(
+      `DELETE FROM bundles WHERE id = $1 AND session_id = $2`,
+      [bundleId, sessionId]
+    );
+    return (del.rowCount || 0) > 0;
+  }
+
+  // Storage object'lerini sil (dosyanın KENDİ backend'ine göre).
+  // Hata olsa bile DB silmeye devam et — orphan blob logla (cleanup-job deseni).
+  for (const f of filesRes.rows) {
+    if (f.storage_key) {
+      try {
+        const provider = await storage.getProviderForFile(f);
+        await provider.deleteObject(f.storage_key);
+      } catch (err) {
+        console.error(`[BundleDelete] Error deleting object ${f.storage_key} from ${f.storage_backend}:`, err.message);
+        // orphan blob — devam et
+      }
+    }
+    // Thumbnail cache (image dosyaları, her zaman local disk)
+    try { await deleteThumb(f.id); } catch { /* thumbnail yoksa kritik değil */ }
+  }
+
+  // Bundle satırını sil → FK ON DELETE CASCADE files satırlarını da kaldırır.
   const res = await query(
     `DELETE FROM bundles WHERE id = $1 AND session_id = $2`,
     [bundleId, sessionId]

@@ -45,7 +45,7 @@ const DOM = {
   uploadTrayBody: document.getElementById('upload-tray-body'),
   uploadTrayCount: document.getElementById('upload-tray-count'),
   trayMinimize: document.getElementById('tray-minimize'),
-  trayClose: document.getElementById('tray-close'),
+  trayClear: document.getElementById('tray-clear'),
 
   // Step 2 — Uploading (batch bitince success'e geçer; upload sırasında
   // progress tray'de gösterilir, bu elementler sadece adaptör amaçlı kalır)
@@ -86,6 +86,10 @@ const DOM = {
 window.FFBatches = new Map();      // batchId -> BatchUpload (aktif + tamamlanmış)
 let pendingFiles = [];              // File[] — drop-zone'da seçili, henüz yüklenmemiş
 const MAX_PARALLEL_FILES = 3;       // per-batch concurrency (paralel dosya)
+// renderTray hangi batch'lerin zaten çizildiğini takip eder → slide-in animasyonu
+// SADECE yeni eklenen batch'e verilir (progress tick'te titremeyi önler). Clear butonu
+// bunu sıfırlar → temizlikten sonra ilk batch tekrar slide-in ile girer.
+const trayRenderedBatchIds = new Set();
 
 let currentStep = 'select';
 
@@ -296,8 +300,17 @@ function renderQueue() {
     row.appendChild(iconWrap);
     row.appendChild(info);
     row.appendChild(removeBtn);
-    queue.appendChild(row);
+    // En üste ekle → en son seçilen dosya en başta görünür (aşağı scroll gerekmez).
+    queue.insertBefore(row, queue.firstChild);
   });
+
+  // Sadece en üstteki (en yeni) satır slide-in animasyonu alsın — tüm satırları
+  // animasyonlamak her eklemede titreme yapar. enter class'ı sonraki frame'de kalkar.
+  const topRow = queue.firstElementChild;
+  if (topRow) {
+    topRow.classList.add('queue-row-enter');
+    requestAnimationFrame(() => requestAnimationFrame(() => topRow.classList.remove('queue-row-enter')));
+  }
 }
 
 /**
@@ -983,9 +996,15 @@ function renderTray() {
     if (btn.dataset.cancel && batch) { batch.cancel(); return; }
   };
 
-  for (const b of window.FFBatches.values()) {
+  // Yeni batch en üstte görünsün → FFBatches (eklenme sırası: eski→yeni)
+  // ters çevrilir. appendChild ile ilk çizilen en üste gelir (yeni batch en üstte).
+  // Slide-in animasyonu SADECE yeni eklenen batch'e (önceki render'da yoktu) verilir;
+  // aksi halde her progress tick'te tüm kartlar yeniden çizilip titrerdi.
+  const batches = [...window.FFBatches.values()].reverse();
+  for (const b of batches) {
     const card = document.createElement('div');
-    card.className = 'tray-batch-card';
+    const isNew = !trayRenderedBatchIds.has(b.id);
+    card.className = 'tray-batch-card' + (isNew ? ' tray-batch-card-enter' : '');
     const name = getBatchDisplayName(b);
     const statusLabel = trayStatusLabel(b.status, currentLang);
     const pct = b.progress || 0;
@@ -995,7 +1014,7 @@ function renderTray() {
         <span class="tray-batch-status">${statusLabel}</span>
       </div>
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-      <div class="tray-batch-meta">${b.completedFiles.length}/${b.files.length} · %${pct}</div>
+      <div class="tray-batch-meta">${formatTrayProgress(b)} · %${pct}</div>
       <div class="tray-batch-actions">
         ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
         ${b.status === 'partial' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
@@ -1004,11 +1023,36 @@ function renderTray() {
         ${b.status !== 'done' && b.status !== 'cancelled' ? `<button class="tray-btn" data-cancel="${b.id}">${t('trayCancel')}</button>` : ''}
       </div>`;
     body.appendChild(card);
+    trayRenderedBatchIds.add(b.id);
   }
+
+  // Slide-in: yeni kartların enter class'ı sonraki frame'de kaldırılır → CSS transition
+  // yukarıdan-normal konuma kaydırır. Eski kartlar enter olmadığından titreme yok.
+  requestAnimationFrame(() => {
+    body.querySelectorAll('.tray-batch-card-enter').forEach((c) => {
+      requestAnimationFrame(() => c.classList.remove('tray-batch-card-enter'));
+    });
+  });
 
   // Tray count: aktif (uploading/paused/pending) batch sayısı
   const activeCount = [...window.FFBatches.values()].filter(b => ['uploading', 'paused', 'pending'].includes(b.status)).length;
   if (DOM.uploadTrayCount) DOM.uploadTrayCount.textContent = activeCount > 0 ? String(activeCount) : '';
+
+  // Clear butonu yalnızca kart varken görünür.
+  updateTrayClearVisibility();
+}
+
+/**
+ * Tray kartında gösterilecek byte tabanlı progress özetini döndürür.
+ * "3 MB / 112 MB" veya "1/3 dosya · 5 MB / 15 MB" formatında.
+ */
+function formatTrayProgress(b) {
+  const total = b.files.reduce((a, f) => a + (f.size || 0), 0) ||
+                b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || 0), 0);
+  const done = b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0) +
+               Math.round((b.progress || 0) / 100 * (total - b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0)));
+  const clampedDone = Math.min(done, total);
+  return total ? `${formatSize(clampedDone)} / ${formatSize(total)}` : `${b.completedFiles.length}/${b.files.length}`;
 }
 
 function trayStatusLabel(status, lang) {
@@ -1037,35 +1081,50 @@ function showTray() {
 // kullanıcı iki minimize ikonu varmış gibi algılıyordu. Durum-aware glyph bunu fix eder.)
 function toggleTrayMinimize() {
   if (!DOM.uploadTray) return;
-  const nowMinimized = DOM.uploadTray.classList.toggle('minimized');
+  DOM.uploadTray.classList.toggle('minimized');
+  // Glyph döner: expanded → chevron-down (küçült), minimized → chevron-up (büyüt).
   if (DOM.trayMinimize) {
-    DOM.trayMinimize.textContent = nowMinimized ? '+' : '—';
-    DOM.trayMinimize.setAttribute('aria-label', nowMinimized ? t('trayMinimize') : (currentLang === 'en' ? 'Expand' : 'Büyüt'));
-    DOM.trayMinimize.title = nowMinimized ? (currentLang === 'en' ? 'Expand' : 'Büyüt') : t('trayMinimize');
+    DOM.trayMinimize.classList.toggle('is-minimized', DOM.uploadTray.classList.contains('minimized'));
   }
 }
-if (DOM.trayMinimize) {
-  DOM.trayMinimize.addEventListener('click', (e) => {
-    e.stopPropagation();
+
+// Clear butonu yalnızca tray'de batch kartı varken (body doluyken) görünür.
+// Boş tray'de (ilk açılış / clear sonrası) gizli — boş paneli temizlemek anlamsız.
+function updateTrayClearVisibility() {
+  if (!DOM.trayClear || !DOM.uploadTrayBody) return;
+  const hasCards = DOM.uploadTrayBody.querySelector('.tray-batch-card');
+  DOM.trayClear.hidden = !hasCards;
+}
+
+// Başlık / üst bar alanına tıkla → minimize toggle.
+// Minimize butonu (#tray-minimize) tıklanınca event buraya bubble eder —
+// stopPropagation ile tekrar toggle olmasını (çift-toggle = no-op) engelleriz,
+// tek toggle yeterli. Minimized'da minimize butonu gizlenir (CSS); başlık tıkla aç.
+// Glyph (chevron) toggleTrayMinimize'da duruma göre döner.
+const trayHeader = DOM.uploadTray && DOM.uploadTray.querySelector('.upload-tray-header');
+if (trayHeader) {
+  trayHeader.style.cursor = 'pointer';
+  trayHeader.title = currentLang === 'en' ? 'Click to expand/collapse' : 'Açmak/kapamak için tıkla';
+  trayHeader.addEventListener('click', () => {
     toggleTrayMinimize();
   });
 }
-// Başlık alanına tıkla → minimize toggle (sadece başlık metnini kapsayan alan).
-const trayTitle = DOM.uploadTray && DOM.uploadTray.querySelector('.upload-tray-title');
-if (trayTitle) {
-  trayTitle.style.cursor = 'pointer';
-  trayTitle.title = currentLang === 'en' ? 'Click to expand/collapse' : 'Açmak/kapamak için tıkla';
-  trayTitle.addEventListener('click', toggleTrayMinimize);
+if (DOM.trayMinimize) {
+  DOM.trayMinimize.addEventListener('click', (e) => {
+    e.stopPropagation(); // header click handler'a bubble edip tekrar toggle olmasın
+    toggleTrayMinimize();
+  });
 }
-if (DOM.trayClose) {
-  DOM.trayClose.addEventListener('click', (e) => {
+// Clear butonu → tray batch kartlarını temizle (FFBatches'e/sunucudaki dosyalara dokunma).
+// Panel kalır (hidden yapma); ilk upload gibi boş header chip olarak durur.
+// trayRenderedBatchIds sıfırlanır → bir sonraki batch slide-in ile girer.
+if (DOM.trayClear) {
+  DOM.trayClear.addEventListener('click', (e) => {
     e.stopPropagation();
-    const active = [...window.FFBatches.values()].some(b => ['uploading', 'paused', 'pending'].includes(b.status));
-    if (!active) {
-      DOM.uploadTray.classList.add('hidden');
-    } else {
-      showToast(t('trayActiveNoClose'), 'error');
-    }
+    if (DOM.uploadTrayBody) DOM.uploadTrayBody.innerHTML = '';
+    trayRenderedBatchIds.clear();
+    if (DOM.uploadTrayCount) DOM.uploadTrayCount.textContent = '';
+    updateTrayClearVisibility();
   });
 }
 

@@ -22,7 +22,7 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="/css/base.css?v=20260623">
-    <link rel="stylesheet" href="/css/components.css?v=20260626">
+    <link rel="stylesheet" href="/css/components.css?v=20260626b">
     <link rel="stylesheet" href="/css/admin.css?v=20260623">
     <link rel="stylesheet" href="/css/utilities.css?v=20260623">
     <link rel="stylesheet" href="/css/file-page.css?v=20260623">
@@ -37,6 +37,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"
             integrity="sha384-Dr98ddmUw2QkdCarNQ+OL7xLty7cSxgR0T7v1tq4UErS/qLV0132sBYTolRAFuOV"
             crossorigin="anonymous"></script>
+
+    <!-- Tema tercihini CSS yüklenmeden önce uygula, aksi halde light modda refresh'te dark flash oluşur. -->
+    <script>
+      (function() {
+        try {
+          const saved = localStorage.getItem('filesfly_theme');
+          const osLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+          if (saved === 'light' || (!saved && osLight)) {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
 </head>
 <body>
 
@@ -310,8 +323,12 @@
         <span class="upload-tray-title" data-i18n="trayTitle">Yüklemeler</span>
         <div class="upload-tray-controls">
             <span class="upload-tray-count" id="upload-tray-count"></span>
-            <button id="tray-minimize" class="tray-btn" aria-label="Küçült" data-i18n-aria="trayMinimize">—</button>
-            <button id="tray-close" class="tray-btn" aria-label="Kapat" data-i18n-aria="trayClose">✕</button>
+            <button id="tray-clear" class="tray-icon-btn" aria-label="Temizle" data-i18n-aria="trayClear" title="Temizle" hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+            <button id="tray-minimize" class="tray-icon-btn" aria-label="Küçült" data-i18n-aria="trayMinimize" title="Küçült">
+                <svg class="tray-min-glyph" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
         </div>
     </div>
     <div id="upload-tray-body" class="upload-tray-body"></div>
@@ -324,7 +341,7 @@
 <script src="/js/crypto.js"></script>
 <script src="/js/i18n.js"></script>
 <script src="/js/preview-render.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/app.js?v=20260626b"></script>
 <script src="/js/enhance.js"></script>
 
 </body>

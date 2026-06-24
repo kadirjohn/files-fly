@@ -579,26 +579,35 @@ async function loadBundleThumbs(thumbContainer, bundleId, isEncrypted) {
     if (!resp.ok) return;
     const data = await resp.json();
     // Kart medya-ızgarası 4'lü grid (components.css .bundle-card-thumbs repeat(4,1fr)).
-    // İlk 4 image + kalan varsa "+N" rozeti. Image olmayan dosyalar kart thumb'ında
-    // gösterilmez (modal açılınca tüm dosyalar ikon+ad olarak listelenir).
+    // Her dosya türü temsil edilsin: image → thumb, değilse → tip ikonu placeholder.
+    // (Önceki davranış image-only filtreliydi → video/pdf vb. kartta hiç görünmüyordu;
+    // modal/ receiver ile tutarlı olması için tüm dosyalar gösterilir.)
     const allFiles = (data.files || []);
-    const images = allFiles.filter(f => f.mime_type && f.mime_type.startsWith('image/')).slice(0, 4);
-    const imageCount = allFiles.filter(f => f.mime_type && f.mime_type.startsWith('image/')).length;
-    const extraCount = imageCount - images.length;
-    if (!images.length) {
+    const firstFour = allFiles.slice(0, 4);
+    const extraCount = allFiles.length - firstFour.length;
+    if (!firstFour.length) {
       thumbContainer.innerHTML = `<span class="bundle-thumb-placeholder">${BUNDLE_ICON_SVG}</span>`;
       return;
     }
-    thumbContainer.innerHTML = images.map(f =>
-      `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="bundle-thumb" data-id="${f.id}">`
-    ).join('');
-    // Kalan image'ler için "+N" rozeti.
+    thumbContainer.innerHTML = firstFour.map(f => {
+      const isImg = f.mime_type && f.mime_type.startsWith('image/');
+      if (isImg) {
+        return `<img src="/api/files/${f.id}/thumb" alt="" loading="lazy" class="bundle-thumb" data-id="${f.id}">`;
+      }
+      // Non-image → dosya-tip ikonu placeholder (video/audio/pdf/zip/text/generic).
+      return `<span class="bundle-thumb-placeholder" data-id="${f.id}">${getFileIcon(f.mime_type, f.filename)}</span>`;
+    }).join('');
+    // Kalan dosyalar için "+N" rozeti (tüm dosyalar sayılır, image değil).
     if (extraCount > 0) {
       thumbContainer.innerHTML += `<span class="bundle-thumb-more">+${extraCount}</span>`;
     }
-    // Thumbnail yüklenemezse gizle (yer tutucu kalsın).
+    // Image thumbnail yüklenemezse (örn. büyük/bozuk) tip ikonuna düş, gizleme.
     thumbContainer.querySelectorAll('img.bundle-thumb').forEach(img => {
-      img.addEventListener('error', () => { img.style.display = 'none'; });
+      img.addEventListener('error', () => {
+        const fid = img.dataset.id;
+        const f = allFiles.find(x => x.id === fid);
+        img.outerHTML = `<span class="bundle-thumb-placeholder" data-id="${fid}">${getFileIcon(f && f.mime_type, f && f.filename)}</span>`;
+      });
     });
   } catch (err) {
     dbg.error('session', 'bundle thumbs error', err);

@@ -812,10 +812,27 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
+    /* Yeni satır slide-in animasyonu için transform/opacity geçişi. */
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.28s ease;
+    margin-bottom: 0.45rem;
 }
 
 .queue-row.queue-row-invalid {
     border-color: var(--color-error);
+}
+
+/* Yeni eklenen queue satırı — yukarıdan slide-in (insertBefore ile en başa
+   eklenir, animasyonla yerleşir). .queue-row-enter JS'te sonraki frame'de
+   kaldırılır, transition normal konuma döndürür. */
+.queue-row.queue-row-enter {
+    transform: translateY(-10px) scale(0.97);
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .queue-row { transition: none; }
+    .queue-row.queue-row-enter { transform: none; opacity: 1; }
 }
 
 .queue-row-icon {
@@ -974,21 +991,55 @@
     border-color: var(--color-border);
 }
 
-#tray-minimize,
-#tray-close {
-    font-size: 0.95rem;
-    padding: 0.2rem 0.45rem;
-    min-width: 1.6rem;
-    text-align: center;
+/* Tray header ikon-butonları (minimize chevron + clear trash) — kompakt, tek tip.
+   Tek bir .tray-icon-btn sınıfı → mobilde "çift minimize" algısını önler (tek stil). */
+.tray-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.85rem;
+    height: 1.85rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    line-height: 0;
+    transition: color var(--transition-fast), background var(--transition-fast),
+                border-color var(--transition-fast), transform var(--transition-fast);
 }
-
-#tray-close:hover {
+.tray-icon-btn svg {
+    width: 1rem;
+    height: 1rem;
+}
+.tray-icon-btn:hover {
+    color: var(--color-text-main);
+    background: var(--color-surface);
+    border-color: var(--color-border);
+}
+#tray-minimize:hover {
+    color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.1);
+    border-color: rgba(var(--color-primary-rgb), 0.3);
+}
+#tray-clear:hover {
     color: var(--color-error);
-    background: rgba(239, 68, 68, 0.12);
+    background: rgba(239, 68, 68, 0.1);
     border-color: rgba(239, 68, 68, 0.3);
 }
+/* Minimize glyph döner: expanded → chevron-aşağı, minimized → chevron-yukarı. */
+#tray-minimize .tray-min-glyph {
+    transition: transform var(--transition-fast);
+}
+#tray-minimize.is-minimized .tray-min-glyph {
+    transform: rotate(180deg);
+}
+/* Clear butonu yalnızca kart varken görünür (JS hidden attr toggle eder). */
+#tray-clear[hidden] { display: none; }
 
-/* Minimize durumunda — gövde gizli, sadece başlık çubuğu chip */
+/* Minimize durumunda — gövde gizli, sadece başlık çubuğu chip.
+   Minimize tuşu minimized'de gizlenir (chip'i açmak için başlığa tıklanır). */
 .upload-tray.minimized .upload-tray-body {
     display: none;
 }
@@ -1000,6 +1051,76 @@
 
 .upload-tray.minimized .upload-tray-header {
     border-bottom: none;
+}
+
+.upload-tray.minimized #tray-minimize {
+    display: none;
+}
+
+.upload-tray.minimized #tray-clear {
+    display: none;
+}
+
+/* -------------------------------------------------------------------------
+   Upload Tray — Mobil (≤640px): compact alt panel. Margin minimal, header sık,
+   ikon-butonlar dokunulabilir boyutta, minimized chip ekranı taşmaz.
+   ------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+    .upload-tray {
+        right: 0.5rem;
+        left: 0.5rem;
+        bottom: 0.5rem;
+        width: auto;                /* left+right → full genişlik (max-width override) */
+        max-width: none;
+        border-radius: var(--radius-md);
+    }
+    .upload-tray.minimized {
+        max-width: calc(100vw - 1rem);   /* chip dar ekranı taşmasın */
+    }
+    .upload-tray-header {
+        padding: 0.6rem 0.7rem;          /* compact, ama dokunulabilir */
+        gap: 0.5rem;
+    }
+    .upload-tray-title {
+        font-size: 0.9375rem;
+    }
+    .upload-tray-count {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.5rem;
+    }
+    /* İkon-butonlar mobilde 44px'e yakın dokunma hedefi (compact ama erişilebilir). */
+    .tray-icon-btn {
+        width: 2.1rem;
+        height: 2.1rem;
+    }
+    .tray-icon-btn svg {
+        width: 1.15rem;
+        height: 1.15rem;
+    }
+    .upload-tray-body {
+        max-height: 56vh;
+        padding: 0.5rem 0.7rem 0.7rem;
+    }
+    /* Queue satırı mobilde compact + dokunulabilir. */
+    .queue-row {
+        padding: 0.6rem 0.7rem;
+        gap: 0.6rem;
+        margin-bottom: 0.4rem;
+    }
+    .queue-row-icon,
+    .queue-row-icon img.preview-thumb {
+        width: 40px;
+        height: 40px;
+    }
+    .queue-row-name {
+        font-size: 0.9rem;
+    }
+    .queue-row-remove {
+        min-width: 2.1rem;
+        min-height: 2.1rem;
+        font-size: 1rem;
+        padding: 0.25rem 0.55rem;
+    }
 }
 
 /* -------------------------------------------------------------------------

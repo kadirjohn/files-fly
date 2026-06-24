@@ -194,10 +194,28 @@
 }
 
 /* =========================================================================
-   Admin Files — bundle-grouped rows (loadFiles renders bundles, expand for files)
+   Admin Files — ince tablo: tek dosya = tıkla önizle, çoklu = [N dosya] + aç
    ========================================================================= */
+
+/* Tek dosyalık bundle satırı: tamamı tıklanabilir önizleme satırı (caret yok).
+   .row-clickable cursor:pointer + hover arka planını miras alır. */
+.single-bundle-row .bundle-row-thumb {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+    margin-right: 0.45rem;
+    flex-shrink: 0;
+}
+
+/* Çoklu bundle satırı: ana satır tıklanabilir değil — yalnızca caret açar.
+   Tek dosya satırı ile karışmaz (orada her yer = önizle). */
 .bundle-table-row {
-    cursor: pointer;
+    cursor: default;
+}
+.bundle-table-row.bundle-row-open {
+    background: rgba(var(--color-primary-rgb), 0.04);
 }
 
 /* Bundle satırı önizleme thumbnail'i (kapalıyken ilk image dosyanın küçük thumb'ı).
@@ -212,16 +230,50 @@
     flex-shrink: 0;
 }
 
-.bundle-table-row .bundle-expand-caret {
-    transition: transform var(--transition-fast);
-    opacity: 0.5;
-    margin-left: 0.3rem;
+/* [N dosya] rozeti — her zaman görünür sayım işareti. Başlık yanında ve tür
+   kolonunda kullanılır. tek dosya satırında gösterilmez (tür = gerçek MIME). */
+.bundle-count-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.12);
+    border: 1px solid rgba(var(--color-primary-rgb), 0.25);
+    border-radius: 999px;
+    vertical-align: middle;
+    margin-left: 0.35rem;
+    white-space: nowrap;
+}
+
+.bundle-caret-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0.25rem;
+    margin-right: 0.3rem;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-fast), opacity var(--transition-fast);
+    opacity: 0.7;
     vertical-align: middle;
 }
 
-.bundle-table-row.bundle-row-open .bundle-expand-caret {
+.bundle-caret-toggle:hover,
+.bundle-caret-toggle:focus {
+    opacity: 1;
+    background: rgba(var(--color-primary-rgb), 0.1);
+    outline: none;
+}
+
+.bundle-table-row.bundle-row-open .bundle-caret-toggle .bundle-expand-caret {
     transform: rotate(180deg);
-    opacity: 0.9;
+}
+
+.bundle-caret-toggle .bundle-expand-caret {
+    transition: transform var(--transition-fast);
+    display: inline-block;
 }
 
 /* Açılan bundle'ın alt dosya satırları — daha soluk arka planla grup hissi. */
@@ -232,4 +284,52 @@
 
 .bundle-sub-row:hover {
     background: rgba(var(--color-primary-rgb), 0.06);
+}
+
+/* İŞLEM sütunu — indir + sil buton grubu (Dosyalarım sayfasındaki kompakt
+   ikon-buton diliyle). İndir = ghost (primary hover), Sil = danger (kırmızı dolgu).
+   .btn-icon base flex hizalama içermediği için burada ekliyoruz — ikon kutuda
+   ortalanmazsa "içi bozuk/kayık" görünür. */
+.admin-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.admin-row-actions .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    line-height: 0;
+}
+.admin-row-actions .btn-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+/* İndir butonu — ghost (şeffaf), hover'da primary vurgu. Dosyalarım'daki gibi. */
+.admin-download-btn {
+    background: transparent;
+    color: var(--color-text-muted);
+    border: 1px solid transparent;
+}
+.admin-download-btn:hover {
+    color: var(--color-primary);
+    background: rgba(var(--color-primary-rgb), 0.1);
+    border-color: rgba(var(--color-primary-rgb), 0.3);
+}
+
+/* Sil butonu — danger (kırmızı dolgu + beyaz ikon), Dosyalarım'daki gibi.
+   .btn-danger base override edilmeden korunur; burada sadece hover vurgusu. */
+.admin-row-actions .delete-file-btn {
+    background: var(--color-error);
+    color: #fff;
+    border: 1px solid transparent;
+}
+.admin-row-actions .delete-file-btn:hover:not(:disabled) {
+    opacity: 0.9;
 }

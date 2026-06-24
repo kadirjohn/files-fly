@@ -127,7 +127,25 @@ class S3BaseStorageProvider {
     }
 
     if (data && typeof data.pipe === 'function') {
-      // lib-storage Upload — multipart + retry ile büyük dosya yükler
+      const S5MB = 5 * 1024 * 1024;
+
+      // 5 MB ve altı dosyalar tek parça PutObject (Supabase free tier tek parça
+      // limiti 5 MB; daha büyük dosyalar için multipart zorunlu).
+      if (opts.contentLength && Number.isFinite(opts.contentLength) && opts.contentLength > 0 && opts.contentLength <= S5MB) {
+        const command = new PutObjectCommandCtor({
+          Bucket: this.bucket,
+          Key: key,
+          Body: data,
+          ContentType: contentType,
+          ContentLength: opts.contentLength,
+        });
+        await this.client.send(command);
+        return;
+      }
+
+      // Büyük dosyalar: multipart upload. Supabase free tier'da 5 MB part size
+      // ve sıralı (queueSize: 1) gönderim daha güvenlidir; paralel part gönderim
+      // "upload does not exist" hatasına yol açabiliyor.
       const upload = new UploadClass({
         client: this.client,
         params: {
@@ -136,8 +154,8 @@ class S3BaseStorageProvider {
           Body: data,
           ContentType: contentType,
         },
-        queueSize: 4,
-        partSize: 16 * 1024 * 1024, // 16MB part
+        queueSize: 1,
+        partSize: S5MB, // 5 MB part
       });
       await upload.done();
       return;
@@ -210,9 +228,14 @@ class S3BaseStorageProvider {
     const command = new DeleteObjectCommandCtor({ Bucket: this.bucket, Key: key });
     try {
       await this.client.send(command);
+      console.log(`[DELETE] OK backend=${this.name} bucket=${this.bucket} key=${key}`);
       return true;
     } catch (err) {
-      if (err && err.name === 'NoSuchKey') return false;
+      if (err && err.name === 'NoSuchKey') {
+        console.log(`[DELETE] NoSuchKey (zaten yok) bucket=${this.bucket} key=${key}`);
+        return false;
+      }
+      console.error(`[DELETE] FAIL backend=${this.name} bucket=${this.bucket} key=${key} err=${err && err.name}: ${err && err.message}`);
       throw err;
     }
   }
