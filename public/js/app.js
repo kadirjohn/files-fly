@@ -620,6 +620,9 @@ class BatchUpload {
     }
     const meta = await this.send(file, data, encIV, encSalt, originalMimeType);
     this.completedFiles.push({ file, meta });
+    // Dosya tamamlandı → segment'i completed işaretle (dot marker animasyonu).
+    markFileCompleted(this, file);
+    renderTray();
     dbg.info('batch', `✓ ${file.name} done`, { id: meta.id });
   }
 
@@ -653,13 +656,15 @@ class BatchUpload {
       const xhr = new XMLHttpRequest();
       this.activeXhrs.set(file.name + ':single', xhr);
 
-      // Per-file progress → batch progress (tamamlanan dosya byte'ı eklenir)
+      // Per-file progress → batch progress (tamamlanan dosya byte'ı eklenir).
+      // Segment-aware: setFileProgress bu dosyanın segment'ini doldurur.
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           // Anlık progress: tamamlanan dosyalar + bu dosyanın loaded'ı
           const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + e.loaded;
           const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
           this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
+          setFileProgress(this, file, e.loaded);
           renderTray();
         }
       });
@@ -696,8 +701,11 @@ class BatchUpload {
   }
 
   // -----------------------------------------------------------------------
-  // Chunked upload (büyük dosyalar — fetch). Eski doChunkedUpload/uploadChunk'tan
-  // uyarlandı. Per-file fileId, this.activeXhrs AbortController, this.opts.bundleId.
+  // Chunked upload (büyük dosyalar — XHR ile granular progress). fetch() kullanmıyoruz:
+  // fetch'in upload progress event'i yok → progress sadece chunk bitiminde güncellenirdi,
+  // LAN'da ilk chunk bir anda buffer'lanıp "%98" gibi yanıltıcı sıçrama yapardı. XHR
+  // xhr.upload.progress ile her chunk içinde gerçek uploaded byte'ı alırız → düzgün artış.
+  // Per-file fileId, this.activeXhrs (chunk XHR'larını abort eder), this.opts.bundleId.
   // Resume: GET /api/upload/chunk/:id/status ile kaldığı yerden devam eder.
   // -----------------------------------------------------------------------
   async chunkedUpload(file, data, encIV, encSalt, originalMimeType) {
@@ -706,7 +714,14 @@ class BatchUpload {
     let uploadedChunks = 0;
     let chunkBytesUploaded = 0;
     const abortCtrl = new AbortController();
-    this.activeXhrs.set(file.name + ':chunk', abortCtrl);
+    // Chunk XHR'larını abort için sakla: resume status fetch + aktif chunk xhr.
+    const chunkXhrs = [];
+    this.activeXhrs.set(file.name + ':chunk', {
+      abort: () => {
+        try { abortCtrl.abort(); } catch { /* ignore */ }
+        chunkXhrs.forEach(x => { try { x.abort(); } catch { /* ignore */ } });
+      },
+    });
 
     dbg.info('chunk', `Chunked upload init: ${file.name}`, { fileId: chunkFileId, totalChunks, chunkSize: chunkSizeBytes, totalSize: data.size });
 
@@ -718,10 +733,7 @@ class BatchUpload {
         if (status.exists && status.received_chunks > 0) {
           uploadedChunks = status.received_chunks;
           dbg.info('chunk', `Resume: ${uploadedChunks}/${totalChunks} chunks already uploaded (${file.name})`);
-          const fullChunkSize = chunkSizeBytes;
-          chunkBytesUploaded = (uploadedChunks - 1) < totalChunks - 1
-            ? uploadedChunks * fullChunkSize
-            : Math.min(uploadedChunks * fullChunkSize, data.size);
+          chunkBytesUploaded = Math.min(uploadedChunks * chunkSizeBytes, data.size);
           showToast(`${uploadedChunks}/${totalChunks} ${t('chunkResume')}`, 'info');
         }
       }
@@ -730,7 +742,8 @@ class BatchUpload {
       dbg.warn('chunk', `Resume status fetch failed (${file.name}), starting fresh`, err.message);
     }
 
-    // Chunk loop
+    // Chunk loop — her chunk için segment-fill animasyonu (bu dosyanın segmenti dolar).
+    // setFileProgress: progress-fill %'yi segment bilgisine dönüştürür (multi-file segmented bar).
     for (let i = uploadedChunks; i < totalChunks; i++) {
       if (abortCtrl.signal.aborted || this.status === 'paused' || this.status === 'cancelled') {
         this.activeXhrs.delete(file.name + ':chunk');
@@ -739,20 +752,32 @@ class BatchUpload {
       const start = i * chunkSizeBytes;
       const end = Math.min(start + chunkSizeBytes, data.size);
       const chunk = data.slice(start, end);
-      const result = await this.uploadChunk(file, chunkFileId, i, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl);
+      const chunkBase = start;
+      const result = await this.uploadChunk(file, chunkFileId, i, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl, chunkXhrs, (loaded) => {
+        // Granular per-chunk progress: chunkBase + loaded = bu dosyanın uploaded byte'ı.
+        const fileBytesUploaded = chunkBase + loaded;
+        const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + fileBytesUploaded;
+        const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
+        this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
+        setFileProgress(this, file, fileBytesUploaded);
+        renderTray();
+      });
       if (!result) {
         this.activeXhrs.delete(file.name + ':chunk');
         throw new Error(`${t('chunkFailed')} (${i + 1}/${totalChunks})`);
       }
       uploadedChunks++;
-      chunkBytesUploaded += chunk.size;
-      // Per-file progress → batch progress
+      chunkBytesUploaded = Math.min((i + 1) * chunkSizeBytes, data.size);
+      // Chunk bitti → bu dosyanın segmenti tamam (animasyon fill bitişi).
       const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + chunkBytesUploaded;
       const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
       this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
+      setFileProgress(this, file, chunkBytesUploaded);
       renderTray();
       // Son chunk → result.complete=true, dosya metadata içerir
       if (result.complete) {
+        markFileCompleted(this, file);
+        renderTray();
         this.activeXhrs.delete(file.name + ':chunk');
         return result;
       }
@@ -763,12 +788,13 @@ class BatchUpload {
   }
 
   /**
-   * Tek bir chunk'ı fetch ile gönderir. Eski uploadChunk'tan uyarlandı.
+   * Tek bir chunk'ı XHR ile gönderir (upload progress event'i → granular progress).
    * this.opts.bundleId + this.opts.expireHours form alanlarına eklenir.
-   * Retry: 3 kez, üstel bekleme.
+   * onProgress(loaded) her xhr.upload.progress tick'inde çağrılır → caller progress'i günceller.
+   * Retry: 3 kez, üstel bekleme. Kalıcı hata (quota/size/mime) → retry yapmaz, fırlatır.
    * @returns {Promise<object|null>} - response JSON (complete:true içerebilir) veya null (hata)
    */
-  async uploadChunk(file, chunkFileId, chunkIndex, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl) {
+  async uploadChunk(file, chunkFileId, chunkIndex, totalChunks, chunk, data, encIV, encSalt, originalMimeType, abortCtrl, chunkXhrs, onProgress) {
     const formData = new FormData();
     formData.append('chunk', chunk, `chunk_${chunkIndex}`);
     formData.append('chunk_index', String(chunkIndex));
@@ -789,34 +815,20 @@ class BatchUpload {
     while (retries <= maxRetries) {
       try {
         dbg.log('chunk', `Chunk ${chunkIndex + 1}/${totalChunks} → POST /api/upload/chunk (${file.name}, attempt ${retries + 1})`);
-        const resp = await fetch('/api/upload/chunk', {
-          method: 'POST',
-          body: formData,
-          signal: abortCtrl.signal,
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          dbg.error('chunk', `Chunk ${chunkIndex + 1} HTTP ${resp.status}`, errData);
-          // Kotası aşım gibi kalıcı hatalar → retry yapma
-          if (resp.status === 507 || resp.status === 413 || resp.status === 415) {
-            throw new Error(errData.error || `Chunk upload error: ${resp.status}`);
-          }
-          throw new Error(errData.error || `Chunk upload error: ${resp.status}`);
-        }
-        const result = await resp.json();
+        const result = await this.sendChunkXHR(formData, abortCtrl, chunkXhrs, onProgress, file, chunkIndex, totalChunks);
         if (result.complete) {
           dbg.info('chunk', `✓ Last chunk (${chunkIndex + 1}/${totalChunks}) — complete (${file.name})`, { id: result.id });
         }
         return result;
       } catch (err) {
-        if (err.name === 'AbortError') {
+        if (err.name === 'AbortError' || err.message === 'aborted') {
           dbg.warn('chunk', `Chunk ${chunkIndex + 1} aborted (${file.name})`);
           return null;
         }
-        // Kalıcı hata (quota/size/mime) → retry yapma
-        if (err.message && (err.message.includes('quota') || err.message.includes('exceeds maximum') || err.message.includes('not allowed'))) {
+        // HTTP error wrapper: err.__status kodlu kalıcı hatalar → retry yapma
+        if (err.__permanent) {
           dbg.error('chunk', `Chunk ${chunkIndex + 1} permanent error (${file.name})`, err.message);
-          throw err;
+          throw new Error(err.message);
         }
         retries++;
         if (retries > maxRetries) {
@@ -828,6 +840,73 @@ class BatchUpload {
       }
     }
     return null;
+  }
+
+  /**
+   * Bir chunk FormData'sını XHR ile POST eder. xhr.upload.progress → onProgress(loaded).
+   * HTTP hatasında err.__status + err.__permanent set eder (quota/size/mime = kalıcı).
+   */
+  sendChunkXHR(formData, abortCtrl, chunkXhrs, onProgress, file, chunkIndex, totalChunks) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      chunkXhrs.push(xhr);
+
+      // Granular upload progress → caller batch progress'i günceller.
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) onProgress(e.loaded);
+        });
+      }
+
+      xhr.addEventListener('load', () => {
+        const idx = chunkXhrs.indexOf(xhr);
+        if (idx >= 0) chunkXhrs.splice(idx, 1);
+        const status = xhr.status;
+        const txt = xhr.responseText;
+        if (status >= 200 && status < 300) {
+          try { resolve(JSON.parse(txt)); }
+          catch { reject(new Error(t('serverResponseError'))); }
+        } else {
+          let msg = `Chunk upload error: ${status}`;
+          let permanent = false;
+          try {
+            const err = JSON.parse(txt);
+            msg = err.error || msg;
+          } catch { /* use default */ }
+          // Kalıcı hatalar (quota/size/mime) → retry yapma.
+          if (status === 507 || status === 413 || status === 415 ||
+              (msg && (msg.includes('quota') || msg.includes('exceeds maximum') || msg.includes('not allowed')))) {
+            permanent = true;
+          }
+          const e = new Error(msg);
+          e.__status = status;
+          e.__permanent = permanent;
+          reject(e);
+        }
+      });
+      xhr.addEventListener('error', () => {
+        const idx = chunkXhrs.indexOf(xhr);
+        if (idx >= 0) chunkXhrs.splice(idx, 1);
+        reject(new Error(t('connectionError')));
+      });
+      xhr.addEventListener('abort', () => {
+        const idx = chunkXhrs.indexOf(xhr);
+        if (idx >= 0) chunkXhrs.splice(idx, 1);
+        const e = new Error('aborted');
+        e.name = 'AbortError';
+        reject(e);
+      });
+
+      // AbortController ile bu xhr'ı da abort et (pause/cancel).
+      if (abortCtrl) {
+        const onAbort = () => { try { xhr.abort(); } catch { /* ignore */ } };
+        abortCtrl.signal.addEventListener('abort', onAbort, { once: true });
+        if (abortCtrl.signal.aborted) onAbort();
+      }
+
+      xhr.open('POST', '/api/upload/chunk');
+      xhr.send(formData);
+    });
   }
 
   /**
@@ -917,6 +996,76 @@ async function ensureSession() {
 // =========================================================================
 // Upload Tray — sağ-alt köşede batch kartları
 // =========================================================================
+
+// Per-file segment state: batch.fileProgress = Map<fileKey, {bytes, total, done}>.
+// fileKey = name+size+lastModified (aynı dosyayı benzersiz tanımlar). Bu map segment
+// progress bar'ını çizer: her dosya kendi segment'ini doldurur, bitince completed-dot alır.
+function fileKey(file) {
+  return (file.name || '') + '|' + (file.size || 0) + '|' + (file.lastModified || 0);
+}
+
+/**
+ * Bir dosyanın bu anki uploaded byte'ını kaydeder → segment bar o dosya için dolar.
+ * Multi-file batch'te her dosya kendi oranında segment doldurur; kullanıcı hangi
+ * dosyanın yüklendiğini segment'in dolmasıyla görür.
+ */
+function setFileProgress(batch, file, bytesUploaded) {
+  if (!batch.fileProgress) batch.fileProgress = new Map();
+  const key = fileKey(file);
+  const cur = batch.fileProgress.get(key) || { bytes: 0, total: file.size || 0, done: false };
+  cur.total = file.size || cur.total || 0;
+  // loaded bazen total'i aşabilir (multipart overhead) → clamp.
+  cur.bytes = Math.min(bytesUploaded, cur.total || bytesUploaded);
+  batch.fileProgress.set(key, cur);
+}
+
+/**
+ * Bir dosya tamamlandı → segment'i done=true işaretle. CSS "completed dot" animasyonu
+ * (segment sonunda küçük parlak nokta) bunu gösterir → kullanıcı "bu dosya bitti" hisseder.
+ */
+function markFileCompleted(batch, file) {
+  if (!batch.fileProgress) batch.fileProgress = new Map();
+  const key = fileKey(file);
+  const cur = batch.fileProgress.get(key) || { bytes: file.size || 0, total: file.size || 0, done: false };
+  cur.bytes = cur.total || file.size || cur.bytes;
+  cur.done = true;
+  batch.fileProgress.set(key, cur);
+}
+
+/**
+ * Segment bar HTML'i üretir: N dosya → N segment, her biri kendi yüzdesinde dolu.
+ * Tamamlanan segment'ler .seg-done (completed dot), yüklenenler .seg-active,
+ * bekleyenler .seg-empty. Tek dosya → tek segment (geleneksel bar görünümü).
+ */
+function renderSegmentBar(batch) {
+  const files = batch.files || [];
+  // fileProgress'ten okunan durum; olmayan dosyalar boş segment.
+  const segs = files.map(f => {
+    const st = (batch.fileProgress && batch.fileProgress.get(fileKey(f))) || null;
+    return {
+      total: f.size || (st && st.total) || 0,
+      bytes: st ? st.bytes : 0,
+      done: st ? st.done : false,
+    };
+  });
+  // Tek dosya → tek segment (basit bar; multi-file hissi yok).
+  if (segs.length <= 1) {
+    const s = segs[0] || { total: 0, bytes: 0, done: false };
+    const pct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    return `<div class="tray-seg-bar single">
+      <div class="tray-seg ${s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
+        <div class="tray-seg-fill" style="width:${s.done ? 100 : pct}%"></div>
+      </div>
+    </div>`;
+  }
+  // Çoklu dosya → her dosya 1fr segment. Grid gap segmentler arası küçük boşluk = "dot".
+  const segHtml = segs.map(s => {
+    const pct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    const cls = s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty');
+    return `<div class="tray-seg ${cls}"><div class="tray-seg-fill" style="width:${s.done ? 100 : pct}%"></div></div>`;
+  }).join('');
+  return `<div class="tray-seg-bar multi" style="--seg-count:${segs.length}">${segHtml}</div>`;
+}
 
 /**
  * Batch için kart/success step'te gösterilecek okunabilir ad döndürür.
@@ -1008,12 +1157,16 @@ function renderTray() {
     const name = getBatchDisplayName(b);
     const statusLabel = trayStatusLabel(b.status, currentLang);
     const pct = b.progress || 0;
+    card.dataset.status = b.status;
+    // Segment bar: multi-file batch'te her dosya kendi segment'ini doldurur; tek dosyada
+    // geleneksel tek bar. fileProgress yoksa (restore edilmiş localStorage stub) fallback % bar.
+    const segBar = (b.fileProgress && b.files && b.files.length) ? renderSegmentBar(b) : `<div class="tray-seg-bar single"><div class="tray-seg ${b.status === 'done' ? 'seg-done' : (pct > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%"><div class="tray-seg-fill" style="width:${pct}%"></div></div></div>`;
     card.innerHTML = `
       <div class="tray-batch-top">
         <span class="tray-batch-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
         <span class="tray-batch-status">${statusLabel}</span>
       </div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+      ${segBar}
       <div class="tray-batch-meta">${formatTrayProgress(b)} · %${pct}</div>
       <div class="tray-batch-actions">
         ${b.status === 'done' && b.shareUrl ? `<button class="tray-btn" data-copy="${escapeHtml(b.shareUrl)}">${t('trayCopyLink')}</button>` : ''}
@@ -1034,9 +1187,18 @@ function renderTray() {
     });
   });
 
-  // Tray count: aktif (uploading/paused/pending) batch sayısı
+  // Tray count: aktif (uploading/paused/pending) batch sayısı. 0 iken pill gizli
+  // (boş "0" rozeti kalmasın — user "ayrı minimize iconu" sanmasın).
   const activeCount = [...window.FFBatches.values()].filter(b => ['uploading', 'paused', 'pending'].includes(b.status)).length;
-  if (DOM.uploadTrayCount) DOM.uploadTrayCount.textContent = activeCount > 0 ? String(activeCount) : '';
+  if (DOM.uploadTrayCount) {
+    if (activeCount > 0) {
+      DOM.uploadTrayCount.textContent = String(activeCount);
+      DOM.uploadTrayCount.hidden = false;
+    } else {
+      DOM.uploadTrayCount.textContent = '';
+      DOM.uploadTrayCount.hidden = true;
+    }
+  }
 
   // Clear butonu yalnızca kart varken görünür.
   updateTrayClearVisibility();
@@ -1115,15 +1277,29 @@ if (DOM.trayMinimize) {
     toggleTrayMinimize();
   });
 }
-// Clear butonu → tray batch kartlarını temizle (FFBatches'e/sunucudaki dosyalara dokunma).
-// Panel kalır (hidden yapma); ilk upload gibi boş header chip olarak durur.
-// trayRenderedBatchIds sıfırlanır → bir sonraki batch slide-in ile girer.
+// Clear butonu → tray batch kartlarını temizle. ROOT CAUSE: eskiden sadece innerHTML'i
+// boşaltıp FFBatches'te done/partial batch'leri bırakıyordu → persistBatches onları
+// localStorage'a yazıyordu → sonraki upload'da restoreBatches eski listeyi geri getiriyordu
+// ("clear işe yarıyor ama eski dosyalar geri geliyor" bugı). Şimdi done/partial/cancelled/
+// error batch'leri FFBatches'ten DE kaldırıyoruz + persistBatches ile localStorage'ı
+// güncelliyoruz. Aktif (uploading) batch'lere dokunmuyoruz. Panel kalır (hidden yapma).
+// Sunucudaki dosyalara/silme işlemine dokunmaz — yalnızca tray görünümünü temizler.
 if (DOM.trayClear) {
   DOM.trayClear.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (DOM.uploadTrayBody) DOM.uploadTrayBody.innerHTML = '';
+    const keep = new Map();
+    for (const [id, b] of window.FFBatches) {
+      // Aktif yükleme devam ediyorsa tray'de kalsın; temizlik sadece bitmiş/iptal kartları.
+      if (b.status === 'uploading' || b.status === 'paused' || b.status === 'pending') {
+        keep.set(id, b);
+      }
+    }
+    window.FFBatches = keep;
     trayRenderedBatchIds.clear();
-    if (DOM.uploadTrayCount) DOM.uploadTrayCount.textContent = '';
+    persistBatches();
+    if (DOM.uploadTrayBody) DOM.uploadTrayBody.innerHTML = '';
+    if (DOM.uploadTrayCount) { DOM.uploadTrayCount.textContent = ''; DOM.uploadTrayCount.hidden = true; }
+    renderTray();
     updateTrayClearVisibility();
   });
 }
@@ -1941,9 +2117,13 @@ function applyTranslations() {
     if (text) el.setAttribute('aria-label', text);
   });
 
-  // Lang switcher butonları
+  // Lang switcher butonları — sliding pill active state + container data-lang-active
+  // (CSS indicator TR solda kırmızı / EN sağda mavi kayar).
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === currentLang);
+  });
+  document.querySelectorAll('.lang-switcher').forEach(sw => {
+    sw.setAttribute('data-lang-active', currentLang);
   });
 }
 

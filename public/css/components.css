@@ -911,7 +911,10 @@
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
+    /* uploads panel glow, dark or light based on theme, light glow on dark theme */
+    box-shadow: var(--shadow-lg),
+                0 0 0 1px rgba(255, 255, 255, 0.06),
+                0 0 28px -6px rgba(255, 255, 255, 0.18);
     z-index: 1000;
     overflow: hidden;
     transition: width var(--transition-normal), box-shadow var(--transition-fast);
@@ -919,11 +922,30 @@
 
 [data-theme="light"] .upload-tray {
     background: #fff;
+    /* Light mode → dark glow (beyaz zeminde koyu hale). */
+    box-shadow: var(--shadow-lg),
+                0 0 0 1px rgba(0, 0, 0, 0.04),
+                0 0 28px -6px rgba(15, 23, 42, 0.22);
+}
+
+/* Minimized chip → glow biraz daha yoğun (panelin varlığı vurgulu). */
+.upload-tray.minimized {
+    box-shadow: var(--shadow-md),
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 0 34px -4px rgba(255, 255, 255, 0.28);
+}
+[data-theme="light"] .upload-tray.minimized {
+    box-shadow: var(--shadow-md),
+                0 0 0 1px rgba(0, 0, 0, 0.06),
+                0 0 34px -4px rgba(15, 23, 42, 0.3);
 }
 
 .upload-tray.hidden {
     display: none;
 }
+
+/* Aktif batch yokken count pill gizli (JS hidden attr toggle eder) — boş "0" kalmasın. */
+#upload-tray-count[hidden] { display: none; }
 
 .upload-tray-header {
     display: flex;
@@ -1046,7 +1068,7 @@
 
 .upload-tray.minimized {
     width: auto;
-    box-shadow: var(--shadow-md);
+    /* box-shadow yukarıdaki glow kuralında (minimized chip için yoğun glow). */
 }
 
 .upload-tray.minimized .upload-tray-header {
@@ -1171,10 +1193,86 @@
 .tray-batch-card[data-status="cancelled"] .tray-batch-status { color: var(--color-text-dark); }
 .tray-batch-card[data-status="error"] .tray-batch-status { color: var(--color-error); }
 
-/* Tray içindeki progress bar — küçük, ince */
+/* Tray içindeki progress bar — küçük, ince. (Eski tek-bar; artık segment bar kullanılıyor
+   ama restore edilmiş localStorage stub'lar için fallback olarak bırakıldı.) */
 .tray-batch-card .progress-bar {
     height: 5px;
     margin: 0.35rem 0;
+}
+
+/* -------------------------------------------------------------------------
+   Tray Segment Bar — multi-file batch ilerlemesi.
+   Her dosya kendi segment'ini doldurur; segmentler arası gap = "completion dot"
+   (dosya bitince segment dolu + kenarda parlak nokta). Tek dosya → tek segment.
+   Kullanıcı "ilk dosya bitti, sıradaki başladı" hissini segment dolmasıyla alır.
+   ------------------------------------------------------------------------- */
+.tray-seg-bar {
+    height: 6px;
+    margin: 0.4rem 0;
+    display: grid;
+    gap: 3px;                 /* segmentler arası boşluk = completion noktası yeri */
+}
+.tray-seg-bar.multi {
+    grid-template-columns: repeat(var(--seg-count, 3), 1fr);
+}
+.tray-seg-bar.single {
+    grid-template-columns: 1fr;
+}
+
+.tray-seg {
+    position: relative;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    min-width: 4px;
+}
+[data-theme="light"] .tray-seg {
+    background: rgba(15, 23, 42, 0.08);
+}
+
+/* Segment fill — gradient, width % ile dolar */
+.tray-seg-fill {
+    height: 100%;
+    width: 0;
+    background: var(--grad-upload);
+    border-radius: 999px;
+    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tray-seg-active .tray-seg-fill {
+    box-shadow: 0 0 8px -1px rgba(var(--color-upload-rgb), 0.6);
+}
+
+/* dosya upload ederken tamamlanan segment — yeşil dolgu + sağ kenarda parlak completion dot. */
+.tray-seg-done .tray-seg-fill {
+    background: var(--color-success);
+    width: 100%;
+    box-shadow: 0 0 8px -1px rgba(var(--color-success-rgb), 0.7);
+}
+/* completed dot done pulse animasyonu. */
+.tray-seg-done::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -1px;
+    transform: translate(50%, -50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 6px 1px rgba(var(--color-success-rgb), 0.85);
+    animation: tray-seg-dot-pop 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+@keyframes tray-seg-dot-pop {
+    0%   { transform: translate(50%, -50%) scale(0); opacity: 0; }
+    70%  { transform: translate(50%, -50%) scale(1.4); }
+    100% { transform: translate(50%, -50%) scale(1); opacity: 1; }
+}
+
+.tray-seg-empty .tray-seg-fill { width: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+    .tray-seg-fill { transition: none; }
+    .tray-seg-done::after { animation: none; }
 }
 
 .tray-batch-meta {

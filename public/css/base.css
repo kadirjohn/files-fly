@@ -152,31 +152,85 @@
 }
 
 /* -------------------------------------------------------------------------
-   Language Switcher
+   Language Switcher — sliding pill toggle (EN mavi / TR kırmızı)
    ------------------------------------------------------------------------- */
 .lang-switcher {
-    display: flex;
-    gap: 0.25rem;
-}
-.lang-btn {
-    background: transparent;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding: 2px;
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 500;
+    border-radius: 999px;
+    /* TR=40px, EN=40px — sabit genişlik */
+    width: 84px;
+    height: 28px;
+    box-sizing: border-box;
+}
+/* Sliding indicator. */
+.lang-switcher::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    height: calc(100% - 4px);
+    border-radius: 999px;
+    background: #E11D48;                 /* TR aktif → kırmızı */
+    box-shadow: 0 1px 4px rgba(225, 29, 72, 0.5);
+    transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+                background 0.32s ease,
+                box-shadow 0.32s ease;
+    z-index: 1;
+}
+/* EN aktif → indicator sağa kayar + mavi. (app.js initLangSwitcher bu attribute'u set eder.) */
+.lang-switcher[data-lang-active="en"]::before {
+    transform: translateX(100%);
+    background: #3B82F6;
+    box-shadow: 0 1px 4px rgba(59, 130, 246, 0.5);
+}
+/* FOUC önle: head'deki inline script html[data-lang] set eder → pill CSS yüklenirken
+   doğru konumda başlar (EN seçili iken refresh'te TR'ye sıçramaz). Varsayılan = TR. */
+html[data-lang="en"] .lang-switcher::before {
+    transform: translateX(100%);
+    background: #3B82F6;
+    box-shadow: 0 1px 4px rgba(59, 130, 246, 0.5);
+}
+
+.lang-btn {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    padding: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     cursor: pointer;
     color: var(--color-text-muted);
-    transition: all var(--transition-fast);
+    transition: color var(--transition-fast);
+    user-select: none;
 }
-.lang-btn:hover {
-    color: var(--color-text-main);
-    background: var(--color-surface);
-}
+/* Aktif dil butonu → indicator üzerinde beyaz metin. */
 .lang-btn.active {
-    color: var(--color-primary);
-    border-color: var(--color-border-active);
-    background: rgba(var(--color-primary-rgb), 0.1);
+    color: #fff;
+}
+.lang-btn:not(.active):hover {
+    color: var(--color-text-main);
+}
+/* light modda muted color text */
+[data-theme="light"] .lang-btn:not(.active) {
+    color: var(--color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lang-switcher::before { transition: none; }
 }
 
 /* -------------------------------------------------------------------------
