@@ -491,12 +491,13 @@ async function finalizeUpload(fileId, dir, metadata) {
   // Image dosyaları için thumbnail üret (preview için compressed kopya).
   // Şifreli dosyalar (ciphertext) ve image olmayanlar otomatik atlanır.
   // Thumbnail her zaman local diskte; cloud kaynak için buffer çekip sharp'a veririz.
+  // NON-BLOCKING: thumbnail preview içindir, indirme/dosya hazırliği için değil. await
+  // yerine fire-and-forget → chunk 3'ün HTTP cevabını (ve progress %100'ü) bloklamaz.
+  // (Eski davranış: thumbnail 5.5sn sürünce istemci %100'de takılı beklerdi.)
   // -----------------------------------------------------------------------
-  try {
-    await maybeGenerateThumbnail(fileId, storageBackend, storageKey, mimeType, isEncrypted, fileSize);
-  } catch (err) {
-    console.error(`[ChunkUpload] Thumbnail generation failed for ${fileId}:`, err.message);
-  }
+  maybeGenerateThumbnail(fileId, storageBackend, storageKey, mimeType, isEncrypted, fileSize)
+    .then(() => { /* thumbnail arka planda bitti — preview hazır */ })
+    .catch((err) => console.error(`[ChunkUpload] Thumbnail generation failed for ${fileId}:`, err.message));
 
   // -----------------------------------------------------------------------
   // Geçici chunk dizinini temizle
@@ -507,8 +508,9 @@ async function finalizeUpload(fileId, dir, metadata) {
     console.error(`[ChunkUpload] Error cleaning tmp dir ${dir}:`, err.message);
   }
 
-  // Finalize başarılı → progress/abort store temizle (poll artık done dönmüş olabilir,
-  // kısa süre sonra sil — istemci son poll'u yakalasın diye hemen silme yerine done bırak).
+  // Finalize başarılı → progress/abort store temizle. R2 yazımı (veya local yazım) bitti =
+  // dosya hazır → phase:done hemen set (thumbnail'i bekleme — o preview için arka plan).
+  // Böylece istemci R2 100% olunca done görür, "işleniyor" boşluğunda %100'de takılmaz.
   clearAborted(fileId);
   setUploadProgress(fileId, { phase: 'done', loaded: fileSize, total: fileSize, pct: 100 });
   // 30sn sonra store'tan tam temizle (memory sızıntı önle).

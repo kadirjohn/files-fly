@@ -51,13 +51,20 @@ window.FFCrypto = (function () {
    * Dosyayı AES-GCM ile şifreler.
    * @param {File|Blob} file
    * @param {string} password
+   * @param {string} [saltBase64] - Opsiyonel: key türetmek için kullanılacak salt
+   *   (bundle ortak salt gibi). Verilmezse per-file random salt üretilir.
+   *   KRİTİK: decrypt'in aynı salt'la key türetmesi gerekir — aksi halde parola
+   *   doğru olsa bile AES-GCM auth-tag uyuşmaz → "Parola yanlış olabilir" hatası.
+   *   (Bundle akışı: tek parola tüm dosyaları açsın diye tüm dosyalar aynı salt'la
+   *    key türetmelidir; encrypt'in kendi per-file salt'ını DB'deki bundle salt'la
+   *    değiştirmek yetmez — key'i de o salt'la türetmek şarttır.)
    * @returns {Promise<{ciphertext: Blob, iv: string, salt: string}>}
    */
-  async function encryptFile(file, password) {
-    // 1. Salt (16 byte random)
-    const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+  async function encryptFile(file, password, saltBase64) {
+    // 1. Salt: dışarıdan verilmişse onu kullan (bundle ortak salt), yoksa per-file random.
+    const salt = saltBase64 ? base64ToBuffer(saltBase64) : crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
 
-    // 2. PBKDF2 ile key türet
+    // 2. PBKDF2 ile key türet (kullanılan salt ile — decrypt de bunu kullanacak)
     const aesKey = await deriveKey(password, salt, ['encrypt']);
 
     // 3. IV (12 byte — AES-GCM standardı)

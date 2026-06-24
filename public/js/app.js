@@ -611,12 +611,17 @@ class BatchUpload {
 
     if (this.opts.password && this.opts.password.length > 0) {
       dbg.info('encrypt', `Encrypting ${file.name} (AES-256-GCM)`);
-      const enc = await encryptFile(file, this.opts.password);
+      // Bundle ortak salt varsa key türetimi de ONUNLA yapılsın (tek parola tüm
+      // dosyaları açar). KRİTİK: salt'ı sadece DB'ye yazılan değerle değiştirmek
+      // yetmez — key de aynı salt'la türetilmeli, yoksa encrypt per-file salt ile
+      // key üretip DB bundle salt ile decrypt eder → parola doğru olsa bile
+      // AES-GCM auth-tag uyuşmaz → "Parola yanlış olabilir" hatası.
+      const enc = await encryptFile(file, this.opts.password, this.opts.passwordSalt || null);
       data = enc.ciphertext;
       encIV = enc.iv;
-      // Bundle ortak salt varsa onu kullan (tek parola tüm dosyaları açar),
-      // yoksa per-file salt enc.salt.
-      encSalt = this.opts.passwordSalt || enc.salt;
+      // encrypt'in kullandığı salt (bundle salt verilmişse o, yoksa per-file enc.salt).
+      // DB'ye yazılan salt = key türetiminde kullanılan salt ile BİREBİR aynı olmalı.
+      encSalt = enc.salt;
     }
     const meta = await this.send(file, data, encIV, encSalt, originalMimeType);
     this.completedFiles.push({ file, meta });
@@ -1932,10 +1937,15 @@ function getCookie(name) {
  * Dosyayı AES-GCM ile şifreler (FFCrypto'ya delege).
  * @param {File|Blob} file - Şifrelenecek dosya
  * @param {string} password - Parola
+ * @param {string} [saltBase64] - Opsiyonel key-türetim salt'ı (bundle ortak salt).
+ *   Verilmezse FFCrypto per-file random salt üretir. Verilen salt, key türetiminde
+ *   KULLANILIR — böylece DB'ye yazılan salt ile decrypt'in key türettiği salt aynı
+ *   olur (parola doğru olsa bile salt uyuşmazlığı "Parola yanlış olabilir" hatası
+ *   üretirdi).
  * @returns {Promise<{ciphertext: Blob, iv: string, salt: string}>}
  */
-async function encryptFile(file, password) {
-  return FFCrypto.encryptFile(file, password);
+async function encryptFile(file, password, saltBase64) {
+  return FFCrypto.encryptFile(file, password, saltBase64);
 }
 
 /**
