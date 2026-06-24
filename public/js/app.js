@@ -433,9 +433,10 @@ function getFileIcon(mimeType, filename) {
 // =========================================================================
 
 function formatSize(bytes) {
-  if (bytes === 0) return '0 B';
+  if (bytes === null || bytes === undefined || !isFinite(bytes) || isNaN(bytes)) return '—';
+  if (bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const size = (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0);
   return `${size} ${units[i]}`;
 }
@@ -768,8 +769,10 @@ class BatchUpload {
 
     // R2 byte → batch progress + segment fill yansıt. R2 finalize sırasında her 500ms.
     const applyR2Progress = (loaded, total) => {
-      const r2Total = total || data.size || 0;
-      const r2Loaded = Math.min(loaded || 0, r2Total);
+      // Guard: loaded/total NaN/undefined (R2 poll eksik/ara değer) → 0 kabul et.
+      const r2Total = (isFinite(total) && total > 0) ? total : (data.size || 0);
+      const safeLoaded = isFinite(loaded) ? loaded : 0;
+      const r2Loaded = Math.min(Math.max(0, safeLoaded), r2Total);
       // b.progress: bu dosyanın R2'ye yazılan byte'ı + önceki tamamlanan dosyalar.
       const doneBytes = completedBatchBytes() + r2Loaded;
       this.progress = totalBatchBytes ? Math.round((doneBytes / totalBatchBytes) * 100) : 0;
@@ -1119,8 +1122,10 @@ function setFileProgress(batch, file, bytesUploaded) {
   const key = fileKey(file);
   const cur = batch.fileProgress.get(key) || { bytes: 0, total: file.size || 0, done: false };
   cur.total = file.size || cur.total || 0;
+  // Guard: bytesUploaded NaN/undefined (R2 poll loaded eksik) → 0 kabul et, NaN bulaşmasın.
+  const safe = isFinite(bytesUploaded) ? bytesUploaded : 0;
   // loaded bazen total'i aşabilir (multipart overhead) → clamp.
-  cur.bytes = Math.min(bytesUploaded, cur.total || bytesUploaded);
+  cur.bytes = Math.min(Math.max(0, safe), cur.total || safe);
   batch.fileProgress.set(key, cur);
 }
 
@@ -1142,9 +1147,18 @@ function markFileCompleted(batch, file) {
  * Tamamlanan segment'ler .seg-done (completed dot), yüklenenler .seg-active,
  * bekleyenler .seg-empty. Tek dosya → tek segment (geleneksel bar görünümü).
  */
+/** Segment yüzdesi hesabı — NaN-safe. bytes/total NaN/eksik → done ise 100, değilse 0. */
+function segPct(bytes, total, done) {
+  if (done) return 100;
+  const b = isFinite(bytes) ? bytes : 0;
+  const t = isFinite(total) && total > 0 ? total : 0;
+  if (!t) return 0;
+  return Math.min(100, Math.max(0, Math.round((b / t) * 100)));
+}
+
 function renderSegmentBar(batch) {
   const files = batch.files || [];
-  const pct = batch.progress || 0;
+  const pct = isFinite(batch.progress) ? batch.progress : 0;
   // fileProgress yoksa (localStorage stub — File nesneleri yok, sadece meta) veya dosya
   // yoksa: tek-segment fallback (batch.progress % ile). done/partial stub için %100.
   if (!batch.fileProgress || files.length === 0) {
@@ -1167,7 +1181,7 @@ function renderSegmentBar(batch) {
   // Tek dosya → tek segment (basit bar; multi-file hissi yok).
   if (segs.length <= 1) {
     const s = segs[0] || { total: 0, bytes: 0, done: false };
-    const spct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    const spct = segPct(s.bytes, s.total, s.done);
     return `<div class="tray-seg-bar single">
       <div class="tray-seg ${s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
         <div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div>
@@ -1176,7 +1190,7 @@ function renderSegmentBar(batch) {
   }
   // Çoklu dosya → her dosya 1fr segment. Grid gap segmentler arası küçük boşluk = "dot".
   const segHtml = segs.map(s => {
-    const spct = s.total ? Math.min(100, Math.round((s.bytes / s.total) * 100)) : (s.done ? 100 : 0);
+    const spct = segPct(s.bytes, s.total, s.done);
     const cls = s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty');
     return `<div class="tray-seg ${cls}"><div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div></div>`;
   }).join('');
@@ -1416,7 +1430,7 @@ function updateSegmentBar(segBarEl, b) {
     const total = f.size || (st && st.total) || 0;
     const bytes = st ? st.bytes : 0;
     const done = st ? st.done : false;
-    const pct = total ? Math.min(100, Math.round((bytes / total) * 100)) : (done ? 100 : 0);
+    const pct = segPct(bytes, total, done);
     const cls = done ? 'seg-done' : (bytes > 0 ? 'seg-active' : 'seg-empty');
     // cls güncelle (önceki active/done/empty sınıfları temizle).
     seg.classList.remove('seg-done', 'seg-active', 'seg-empty');
@@ -1457,20 +1471,23 @@ function renderTrayEmpty() {
 function formatTrayProgress(b) {
   const total = b.files.reduce((a, f) => a + (f.size || 0), 0) ||
                 b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || 0), 0);
-  const done = b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0) +
-               Math.round((b.progress || 0) / 100 * (total - b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0)));
-  const clampedDone = Math.min(done, total);
-  if (!total) return `${b.completedFiles.length}/${b.files.length}`;
+  const completedBytes = b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0);
+  const remainingTotal = total - completedBytes;
+  const done = completedBytes + Math.round((b.progress || 0) / 100 * (isFinite(remainingTotal) ? remainingTotal : 0));
+  // Guard: total/done NaN (stub batch, eksik meta) → güvenli fallback.
+  const safeTotal = isFinite(total) ? total : 0;
+  const safeDone = isFinite(done) ? Math.min(done, safeTotal) : 0;
+  if (!safeTotal) return `${b.completedFiles.length}/${b.files.length}`;
   // Hız + ETA: yalnızca aktif uploading durumunda ve startedAt doluyken.
   // Bitmiş/duraklatılmış batch'lerde hız/ETA anlamsız → sadece byte özeti.
   if (b.status === 'uploading' && b.startedAt) {
     const elapsedSec = Math.max(0.1, (Date.now() - b.startedAt) / 1000);
-    const speed = clampedDone / elapsedSec; // byte/sn
-    const remaining = total - clampedDone;
+    const speed = safeDone / elapsedSec; // byte/sn
+    const remaining = safeTotal - safeDone;
     const etaSec = speed > 0 ? remaining / speed : 0;
-    return `${formatSize(clampedDone)} / ${formatSize(total)} · ${formatSize(speed)}/sn · ${formatEta(etaSec)}`;
+    return `${formatSize(safeDone)} / ${formatSize(safeTotal)} · ${formatSize(speed)}/sn · ${formatEta(etaSec)}`;
   }
-  return `${formatSize(clampedDone)} / ${formatSize(total)}`;
+  return `${formatSize(safeDone)} / ${formatSize(safeTotal)}`;
 }
 
 /** ETA saniye → "12sn" / "1dk 05sn" / "—" (sıfır/bilinmiyor). */
