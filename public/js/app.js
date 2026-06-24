@@ -278,7 +278,7 @@ function renderQueue() {
     // Ad + boyut
     const info = document.createElement('span');
     info.className = 'queue-row-info';
-    info.innerHTML = `<span class="queue-row-name">${escapeHtml(file.name)}</span>` +
+    info.innerHTML = `<span class="queue-row-name" title="${escapeAttr(file.name)}">${escapeHtml(file.name)}</span>` +
                      `<span class="queue-row-size">${formatSize(file.size)}${valid ? '' : ' · <span class="queue-row-warn">' + (currentLang === 'en' ? 'not allowed' : 'izinli değil') + '</span>'}</span>`;
 
     // Kaldır butonu
@@ -906,6 +906,56 @@ async function ensureSession() {
 // =========================================================================
 
 /**
+ * Batch için kart/success step'te gösterilecek okunabilir ad döndürür.
+ * Öncelik: 1) bundle title, 2) tek dosya → dosya adı, 3) çok dosya → ilk ad + N daha,
+ * 4) hiçbiri yoksa fallback "Batch" / "Dosya".
+ */
+function getBatchDisplayName(b) {
+  if (b.opts?.title) return b.opts.title;
+  const files = b.files || [];
+  const completed = b.completedFiles || [];
+  const allNames = files.map(f => f.name || (f.meta && f.meta.filename));
+  if (allNames.length === 1) return allNames[0] || t('batchSingle');
+  if (allNames.length > 1) {
+    const first = allNames[0];
+    const rest = allNames.length - 1;
+    if (first) {
+      return `${first} + ${rest} ${t('bundleMore')}`;
+    }
+    return `${allNames.length} ${t('bundleFiles')}`;
+  }
+  // Fallback for completed-only batches restored from localStorage (files are stubs)
+  if (completed.length === 1) {
+    const metaName = completed[0].meta?.filename;
+    if (metaName) return metaName;
+  }
+  if (completed.length > 1) {
+    return `${completed.length} ${t('bundleFiles')}`;
+  }
+  return t('batchSingle');
+}
+
+/**
+ * E-posta konusu için daha kısa özet ad döndürür.
+ * Tray kartta "ilk dosya + N daha" güzel görünürken e-posta konusunda
+ * "N dosya" / "N files" daha uygun.
+ */
+function getBatchEmailSubjectName(b) {
+  if (b.opts?.title) return b.opts.title;
+  const files = b.files || [];
+  const completed = b.completedFiles || [];
+  const totalCount = files.length || completed.length;
+  if (totalCount === 1) {
+    const name = files[0]?.name || completed[0]?.meta?.filename;
+    return name || t('batchSingle');
+  }
+  if (totalCount > 1) {
+    return `${totalCount} ${t('bundleFiles')}`;
+  }
+  return t('batchSingle');
+}
+
+/**
  * #upload-tray-body içine her batch için bir kart çizer: ad, durum, progress bar,
  * meta (completed/total · %), aksiyon butonları (copy-link / pause / resume / cancel).
  * Event delegation: buton tıklamaları data-pause/data-resume/data-cancel/data-copy
@@ -936,12 +986,12 @@ function renderTray() {
   for (const b of window.FFBatches.values()) {
     const card = document.createElement('div');
     card.className = 'tray-batch-card';
-    const name = b.opts?.title || b.shareUrl?.split('/').pop() || (currentLang === 'en' ? 'Batch' : 'Batch');
+    const name = getBatchDisplayName(b);
     const statusLabel = trayStatusLabel(b.status, currentLang);
     const pct = b.progress || 0;
     card.innerHTML = `
       <div class="tray-batch-top">
-        <span class="tray-batch-name">${escapeHtml(name)}</span>
+        <span class="tray-batch-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
         <span class="tray-batch-status">${statusLabel}</span>
       </div>
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -1123,13 +1173,21 @@ function handleBatchSuccess(batch) {
   }
 
   // E-posta paylaşım linki (batch linki ile)
-  updateEmailShareLink(previewFull, batch.opts?.title || (batch.files[0]?.name || 'dosya'));
+  updateEmailShareLink(previewFull, getBatchEmailSubjectName(batch));
 
   // Parola bilgisi
   if (result.is_encrypted) {
     DOM.passwordInfo?.classList.remove('hidden');
   } else {
     DOM.passwordInfo?.classList.add('hidden');
+  }
+
+  // Success step'te varsa dosya/başlık adını göster
+  const successFilename = document.getElementById('success-filename');
+  if (successFilename) {
+    const displayName = getBatchDisplayName(batch);
+    successFilename.textContent = displayName;
+    successFilename.title = displayName;
   }
 
   // i18n güncelle
@@ -1678,6 +1736,10 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // =========================================================================

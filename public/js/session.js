@@ -379,7 +379,7 @@ function renderBundleCards(bundles) {
           <span class="bundle-card-icon">${BUNDLE_ICON_SVG}</span>
           <div class="bundle-card-info">
             <div class="bundle-card-title">
-              ${escapeHtml(titleText)}
+              <span class="bundle-card-title-text" title="${escapeAttr(titleText)}">${escapeHtml(titleText)}</span>
               ${isEncrypted ? `<span class="encrypted-lock-badge" title="${t('bundlePasswordProtected')}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>` : ''}
             </div>
             <div class="bundle-card-count">
@@ -420,6 +420,9 @@ function renderBundleCards(bundles) {
         });
       } else {
         // Çok dosya: thumb'ları yükle + karta basınca modal.
+        if (!b.title && b.file_count > 0) {
+          loadBundleTitle(card, b.id);
+        }
         loadBundleThumbs(card.querySelector('.bundle-card-thumbs'), b.id, isEncrypted);
         card.addEventListener('click', () => openBundleModal(b.id));
       }
@@ -507,7 +510,10 @@ async function loadSingleFileCard(card, bundleId, isEncrypted) {
     card.dataset.fileEnc = f.is_encrypted ? '1' : '0';
 
     const nameEl = card.querySelector('[data-file-name]');
-    if (nameEl) nameEl.textContent = f.filename || t('bundleFiles');
+    if (nameEl) {
+      nameEl.textContent = f.filename || t('bundleFiles');
+      nameEl.title = f.filename || '';
+    }
 
     const metaEl = card.querySelector('[data-file-meta]');
     if (metaEl) metaEl.textContent = formatSize(f.file_size);
@@ -530,6 +536,31 @@ async function loadSingleFileCard(card, bundleId, isEncrypted) {
     }
   } catch (err) {
     dbg.error('session', 'single file card error', err);
+  }
+}
+
+// Çok dosyalı bundle kartının başlığını ilk dosyanın orijinal adına güncelle.
+async function loadBundleTitle(card, bundleId) {
+  try {
+    const resp = await fetch('/api/bundles/' + bundleId);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const files = data.files || [];
+    const firstName = files[0]?.filename;
+    const titleEl = card.querySelector('.bundle-card-title-text');
+    if (!titleEl) return;
+    if (firstName) {
+      const count = files.length;
+      const titleText = count === 1
+        ? firstName
+        : `${firstName} + ${count - 1} ${t('bundleMore')}`;
+      titleEl.textContent = titleText;
+      titleEl.setAttribute('title', titleText);
+    } else {
+      titleEl.setAttribute('title', titleEl.textContent.trim());
+    }
+  } catch (err) {
+    dbg.error('session', 'load bundle title error', err);
   }
 }
 
