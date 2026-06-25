@@ -1189,7 +1189,13 @@ function getBatchPct(b) {
   const total = getBatchTotalBytes(b);
   if (!total) return b.status === 'done' ? 100 : 0;
   const done = getBatchDoneBytes(b);
-  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+  const bytePct = Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+  const fileTotal = (b.files || []).length;
+  const fileDone = (b.completedFiles || []).length;
+  if (b.status !== 'done' && fileTotal > 0 && fileDone < fileTotal && bytePct >= 100) {
+    return 99;
+  }
+  return bytePct;
 }
 
 /** Dosya sayacı: tamamlanan / toplam. Tek dosyada kartta gösterilmez. */
@@ -1484,9 +1490,17 @@ function formatTrayProgress(b) {
   // Tek doğruluk kaynağı: getBatchDoneBytes/getBatchTotalBytes. Bar ve yüzde de
   // aynı değerleri okur → "11.6 / 11.6 · %2" desync'i olmaz.
   const total = getBatchTotalBytes(b);
-  const done = getBatchDoneBytes(b);
+  const rawDone = getBatchDoneBytes(b);
   const safeTotal = isFinite(total) ? total : 0;
-  const safeDone = isFinite(done) ? Math.min(done, safeTotal) : 0;
+  // Finalize guard: bitmemiş dosya varken "35.6 / 35.6" + "%100" gösterme.
+  // Paralel upload'da network byte'ı dolabilir ama finalize sürer → done'yu
+  // total'in tam altına çek, getBatchPct ile aynı fazda kalsın (done %99).
+  const fileTotal = (b.files || []).length;
+  const fileDone = (b.completedFiles || []).length;
+  const pending = b.status !== 'done' && fileTotal > 0 && fileDone < fileTotal;
+  const safeDone = pending && rawDone >= safeTotal
+    ? Math.max(0, safeTotal - 1) // bir byte eksiğinde tut → "35.6 / 35.6" yerine finalize beklediğini göstersin
+    : (isFinite(rawDone) ? Math.min(rawDone, safeTotal) : 0);
   if (!safeTotal) return `${(b.completedFiles || []).length}/${(b.files || []).length}`;
   // Hız + ETA: yalnızca aktif uploading durumunda ve startedAt doluyken.
   // Bitmiş/duraklatılmış batch'lerde hız/ETA anlamsız → sadece byte özeti.
