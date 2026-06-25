@@ -675,13 +675,12 @@ class BatchUpload {
 
       xhr.addEventListener('load', () => {
         this.activeXhrs.delete(file.name + ':single');
-        // HTTP 200 → bu dosya acknowledged. b.progress + segment done güncellenir.
+        // HTTP 200 → bu dosya acknowledged. fileProgress'u dolu işaretle +
+        // updateProgress tek doğruluk kaynağından yüzdeyi hesaplar.
         const status = xhr.status;
         if (status >= 200 && status < 300) {
-          const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0) + (data.size || file.size || 0);
-          const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
-          this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
           setFileProgress(this, file, data.size || file.size || 0);
+          this.updateProgress();
         }
         const txt = xhr.responseText;
         dbg.info('upload', `XHR response: HTTP ${status} (${file.name})`);
@@ -764,20 +763,24 @@ class BatchUpload {
     // b.progress (batch %) R2'ye YAZILAN byte ile artar (poll /api/upload/progress).
     // Son chunk gönderildikten sonra finalize = R2 upload başlar; bu sırada chunk'ın
     // HTTP cevabı beklenirken R2 progress poll edilir → honest kademeli %.
-    const totalBatchBytes = this.files.reduce((a, f) => a + f.size, 0);
-    const completedBatchBytes = () => this.completedFiles.reduce((a, f) => a + f.file.size, 0);
+    // (Yüzde hesabı artık updateProgress → getBatchPct tek kaynaktan; burada
+    // completedBatchBytes/totalBatchBytes yerel değişkeni gereksiz kaldı.)
 
-    // R2 byte → batch progress + segment fill yansıt. R2 finalize sırasında her 500ms.
+    // R2 byte → fileProgress + updateProgress yansıt. R2 finalize sırasında her 500ms.
     const applyR2Progress = (loaded, total) => {
       // Guard: loaded/total NaN/undefined (R2 poll eksik/ara değer) → 0 kabul et.
       const r2Total = (isFinite(total) && total > 0) ? total : (data.size || 0);
       const safeLoaded = isFinite(loaded) ? loaded : 0;
       const r2Loaded = Math.min(Math.max(0, safeLoaded), r2Total);
-      // b.progress: bu dosyanın R2'ye yazılan byte'ı + önceki tamamlanan dosyalar.
-      const doneBytes = completedBatchBytes() + r2Loaded;
-      this.progress = totalBatchBytes ? Math.round((doneBytes / totalBatchBytes) * 100) : 0;
-      // Segment fill: R2 yazılan byte ile (chunk acknowledge değil).
-      setFileProgress(this, file, r2Loaded);
+      // Backward-jump guard: son chunk sırasında per-chunk onProgress fileProgress'u
+      // ~data.size'a kadar sürükler. R2 poll ilk örnekte loaded:0 rapor edebilir
+      // (backend henüz assembling/uploading phase'inde) → bu değeri olduğu gibi
+      // yazmak bar'ı %100'den %0'a geri sıçratır. Tamamlanmamış dosyada yeni değeri
+      // bir önceki değerden aşağı düşmeye zorla (monotonic artış).
+      const cur = this.fileProgress && this.fileProgress.get(fileKey(file));
+      const prev = cur && !cur.done ? cur.bytes : 0;
+      setFileProgress(this, file, Math.max(prev, r2Loaded));
+      this.updateProgress();
       renderTray();
     };
 
@@ -842,12 +845,11 @@ class BatchUpload {
       dbg.info('chunk', `chunk ack ${i + 1}/${totalChunks} (${file.name})`);
       // Chunk acknowledge = server'a ulaştı (gerçek client→server progress). Mobilde bu
       // yavaş (gerçek upload hızı), localhost'ta hızlı (gerçek — dosya hızlı server'a).
-      // b.progress: tamamlanan dosyalar + bu dosyanın server'a ulaşan byte'ı (chunk ack).
-      // (Son chunk hariç — onun byte'ı R2 poll ile sayılır, çünkü finalize = R2 upload.)
+      // fileProgress: bu dosyanın server'a ulaşan byte'ı. updateProgress tek doğruluk
+      // kaynağından yüzdeyi hesaplar. (Son chunk hariç — onun byte'ı R2 poll ile sayılır.)
       if (!isLast) {
-        const doneBytes = completedBatchBytes() + chunkBytesUploaded;
-        this.progress = totalBatchBytes ? Math.round((doneBytes / totalBatchBytes) * 100) : 0;
         setFileProgress(this, file, chunkBytesUploaded);
+        this.updateProgress();
         renderTray();
       }
       // Son chunk → result.complete=true (finalize = R2 upload bitti). Poll zaten honest
@@ -1007,9 +1009,9 @@ class BatchUpload {
    * Batch progress: tamamlanan dosya byte'ı / toplam byte.
    */
   updateProgress() {
-    const doneBytes = this.completedFiles.reduce((a, f) => a + f.file.size, 0);
-    const totalBytes = this.files.reduce((a, f) => a + f.size, 0);
-    this.progress = totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0;
+    // Tek doğruluk kaynağı: completed dosyalar + devam eden dosyaların
+    // fileProgress byte'ı. Bar/meta/yüzde hepsi bu değeri okur → desync yok.
+    this.progress = getBatchPct(this);
   }
 
   /** Aktif xhr'ları abort ederek duraklat. Resume() ile devam eder. */
@@ -1082,7 +1084,7 @@ DOM.uploadBtn.addEventListener('click', () => {
   pendingFiles = [];
   renderQueue();
   DOM.uploadBtn.disabled = true;
-  showTray();
+  showTray({ expand: true });
   batch.start();
 });
 
@@ -1142,59 +1144,83 @@ function markFileCompleted(batch, file) {
   batch.fileProgress.set(key, cur);
 }
 
-/**
- * Segment bar HTML'i üretir: N dosya → N segment, her biri kendi yüzdesinde dolu.
- * Tamamlanan segment'ler .seg-done (completed dot), yüklenenler .seg-active,
- * bekleyenler .seg-empty. Tek dosya → tek segment (geleneksel bar görünümü).
- */
-/** Segment yüzdesi hesabı — NaN-safe. bytes/total NaN/eksik → done ise 100, değilse 0. */
-function segPct(bytes, total, done) {
-  if (done) return 100;
-  const b = isFinite(bytes) ? bytes : 0;
-  const t = isFinite(total) && total > 0 ? total : 0;
-  if (!t) return 0;
-  return Math.min(100, Math.max(0, Math.round((b / t) * 100)));
+// =========================================================================
+// Tek doğruluk kaynağı (Single source of truth) — batch progress hesabı.
+// Bar genişliği, meta byte özeti VE yüzde değerinin hepsi bu yardımcılardan
+// okunur. Böylece "11.6 MB / 11.6 MB · %2" gibi bar/meta/yüzde desync'i
+// (kaynaklar arası uyuşmazlık) ortadan kalkar. Tüm değerler NaN-safe.
+// =========================================================================
+
+/** Batch toplam byte'ı. files boşsa (localStorage stub) completedFiles meta'sından. */
+function getBatchTotalBytes(b) {
+  const fromFiles = (b.files || []).reduce((a, f) => a + (f && (f.size || 0) || 0), 0);
+  if (fromFiles > 0) return fromFiles;
+  return (b.completedFiles || []).reduce((a, f) => a + ((f.meta && f.meta.file_size) || 0), 0);
 }
 
-function renderSegmentBar(batch) {
-  const files = batch.files || [];
-  const pct = isFinite(batch.progress) ? batch.progress : 0;
-  // fileProgress yoksa (localStorage stub — File nesneleri yok, sadece meta) veya dosya
-  // yoksa: tek-segment fallback (batch.progress % ile). done/partial stub için %100.
-  if (!batch.fileProgress || files.length === 0) {
-    const done = batch.status === 'done';
-    return `<div class="tray-seg-bar single">
-      <div class="tray-seg ${done ? 'seg-done' : (pct > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
-        <div class="tray-seg-fill" style="width:${done ? 100 : pct}%"></div>
-      </div>
-    </div>`;
+/**
+ * Batch için şimdiye kadar yüklenen byte: tamamlanan dosyaların boyutu +
+ * henüz tamamlanmamış dosyaların fileProgress byte'ı. fileProgress yoksa
+ * (localStorage stub / restore) completedFiles boyutuna düşer; done/partial
+ * stub için progress=100 ise toplamı döndürür. Her terim isFinite-guarded.
+ */
+function getBatchDoneBytes(b) {
+  const completed = (b.completedFiles || []).reduce(
+    (a, f) => a + ((f.meta && f.meta.file_size) || (f.file && f.file.size) || 0), 0);
+  if (!b.fileProgress) {
+    // Restore stub: canlı fileProgress yok. done/partial ve progress=100 → toplam.
+    if ((b.status === 'done' || b.status === 'partial') && b.progress >= 100) {
+      return getBatchTotalBytes(b);
+    }
+    return completed;
   }
-  // fileProgress'ten okunan durum; olmayan dosyalar boş segment.
-  const segs = files.map(f => {
-    const st = batch.fileProgress.get(fileKey(f)) || null;
-    return {
-      total: f.size || (st && st.total) || 0,
-      bytes: st ? st.bytes : 0,
-      done: st ? st.done : false,
-    };
-  });
-  // Tek dosya → tek segment (basit bar; multi-file hissi yok).
-  if (segs.length <= 1) {
-    const s = segs[0] || { total: 0, bytes: 0, done: false };
-    const spct = segPct(s.bytes, s.total, s.done);
-    return `<div class="tray-seg-bar single">
-      <div class="tray-seg ${s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty')}" style="width:100%">
-        <div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div>
-      </div>
-    </div>`;
+  const files = b.files || [];
+  let partial = 0;
+  for (const f of files) {
+    const st = b.fileProgress.get(fileKey(f));
+    if (!st || st.done) continue; // tamamlananlar zaten completed'a dahil
+    partial += isFinite(st.bytes) ? st.bytes : 0;
   }
-  // Çoklu dosya → her dosya 1fr segment. Grid gap segmentler arası küçük boşluk = "dot".
-  const segHtml = segs.map(s => {
-    const spct = segPct(s.bytes, s.total, s.done);
-    const cls = s.done ? 'seg-done' : (s.bytes > 0 ? 'seg-active' : 'seg-empty');
-    return `<div class="tray-seg ${cls}"><div class="tray-seg-fill" style="width:${s.done ? 100 : spct}%"></div></div>`;
-  }).join('');
-  return `<div class="tray-seg-bar multi" style="--seg-count:${segs.length}">${segHtml}</div>`;
+  return completed + partial;
+}
+
+/** Batch yüzde değeri (0-100, clamped). Tek doğruluk kaynağı. */
+function getBatchPct(b) {
+  const total = getBatchTotalBytes(b);
+  if (!total) return b.status === 'done' ? 100 : 0;
+  const done = getBatchDoneBytes(b);
+  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+}
+
+/** Dosya sayacı: tamamlanan / toplam. Tek dosyada kartta gösterilmez. */
+function getBatchFileCounter(b) {
+  const total = (b.files || []).length || (b.completedFiles || []).length;
+  const done = (b.completedFiles || []).length;
+  return { done, total };
+}
+
+/**
+ * Tek birleşik progress bar HTML'i üretir. Çok dosyalı bundle olsa bile tek
+ * sürekl bar — dosya bazlı "parçalara ayrılmış" görünüm yok. Yüzde tek
+ * doğruluk kaynağı getBatchPct'ten okunur. done durumunda dolu + completed rengi.
+ */
+function renderBatchBar(batch) {
+  const pct = getBatchPct(batch);
+  const done = batch.status === 'done';
+  const cls = done ? 'tray-batch-bar is-done' : 'tray-batch-bar';
+  return `<div class="${cls}">
+    <div class="tray-batch-bar-fill" style="width:${done ? 100 : pct}%"></div>
+  </div>`;
+}
+
+/**
+ * Dosya sayacı span'i: "2 / 5 dosya". Tek dosyada (total <= 1) boş döner —
+ * kartta gösterilmez. Çoklu bundle'da kullanıcı "kaçıncı dosyadayız"ı buradan okur.
+ */
+function renderBatchCounter(batch) {
+  const { done, total } = getBatchFileCounter(batch);
+  if (total <= 1) return '';
+  return `<span class="tray-batch-counter">${done} / ${total} ${t('bundleFiles')}</span>`;
 }
 
 /**
@@ -1312,6 +1338,7 @@ function renderTray() {
       card = document.createElement('div');
       card.className = 'tray-batch-card' + (trayRenderedBatchIds.has(b.id) ? '' : ' tray-batch-card-enter');
       card.dataset.batchId = b.id;
+      card.dataset.status = b.status;
       card.innerHTML = buildBatchCardInner(b);
       trayRenderedBatchIds.add(b.id);
     } else {
@@ -1359,24 +1386,25 @@ function renderTray() {
 function buildBatchCardInner(b) {
   const name = getBatchDisplayName(b);
   const statusLabel = trayStatusLabel(b.status, currentLang);
-  const pct = b.progress || 0;
-  const segBar = renderSegmentBar(b);
+  const pct = getBatchPct(b);
+  const bar = renderBatchBar(b);
+  const counter = renderBatchCounter(b);
   return `
     <div class="tray-batch-top">
       <span class="tray-batch-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
       <span class="tray-batch-status">${statusLabel}</span>
     </div>
-    ${segBar}
-    <div class="tray-batch-meta">${formatTrayProgress(b)} · %${pct}</div>
+    ${bar}
+    <div class="tray-batch-meta">${counter}<span class="tray-batch-bytes">${formatTrayProgress(b)} · %${pct}</span></div>
     <div class="tray-batch-actions">
       ${buildBatchActions(b)}
     </div>`;
 }
 
 /**
- * Mevcut batch kartını günceller — segment fill width + cls, meta text, status label,
- * actions innerHTML. Element yeniden yaratılmaz → CSS width transition çalışır,
- * progress tick'leri animasyonlu görünür ("anında %100" fix).
+ * Mevcut batch kartını günceller — bar fill width + done cls, counter, meta text,
+ * status label, actions innerHTML. Element yeniden yaratılmaz → CSS width transition
+ * çalışır, progress tick'leri animasyonlu görünür ("anında %100" fix).
  */
 function updateBatchCard(card, b) {
   card.dataset.status = b.status;
@@ -1389,55 +1417,39 @@ function updateBatchCard(card, b) {
   const statusEl = card.querySelector('.tray-batch-status');
   if (statusEl) statusEl.textContent = trayStatusLabel(b.status, currentLang);
 
-  // Segment bar: segment sayısı aynıysa mevcut .tray-seg elementlerini güncelle
-  // (transition çalışsın); farklıysa (dosya sayısı değişti — nadir) yeniden üret.
-  const segBarEl = card.querySelector('.tray-seg-bar');
-  const wantCount = (b.files && b.files.length) || 0;
-  const haveCount = segBarEl ? segBarEl.querySelectorAll('.tray-seg').length : 0;
-  if (!segBarEl || haveCount !== wantCount || (wantCount <= 1) !== segBarEl.classList.contains('single')) {
-    // Yeniden üret (yapı değişti).
-    if (segBarEl) segBarEl.outerHTML = renderSegmentBar(b);
-    else {
-      // İlk seferde segment bar yok → top sonrası ekle.
-      const top = card.querySelector('.tray-batch-top');
-      if (top) top.insertAdjacentHTML('afterend', renderSegmentBar(b));
-    }
+  // Tek birleşik bar: mevcut .tray-batch-bar varsa fill width + done cls güncelle
+  // (transition korunur); yoksa (eski yapıdan kalmış) yeniden üret + eski segment
+  // bar artığını temizle (live hot-reload sırasında kalmış olabilir).
+  let barEl = card.querySelector('.tray-batch-bar');
+  if (!barEl) {
+    card.querySelectorAll('.tray-seg-bar, .tray-seg').forEach(el => el.remove());
+    const top = card.querySelector('.tray-batch-top');
+    if (top) top.insertAdjacentHTML('afterend', renderBatchBar(b));
+    barEl = card.querySelector('.tray-batch-bar');
   } else {
-    // Mevcut segmentleri güncelle (transition korunur).
-    updateSegmentBar(segBarEl, b);
+    updateBatchBar(barEl, b);
   }
 
+  // Meta: counter (çoklu dosya) + byte özeti/yüzde. Counter değişebilir → yeniden kur.
   const metaEl = card.querySelector('.tray-batch-meta');
   if (metaEl) {
-    const pct = b.progress || 0;
-    metaEl.textContent = `${formatTrayProgress(b)} · %${pct}`;
+    const pct = getBatchPct(b);
+    metaEl.innerHTML = `${renderBatchCounter(b)}<span class="tray-batch-bytes">${formatTrayProgress(b)} · %${pct}</span>`;
   }
   const actionsEl = card.querySelector('.tray-batch-actions');
   if (actionsEl) actionsEl.innerHTML = buildBatchActions(b);
 }
 
 /**
- * Mevcut .tray-seg-bar içindeki segment fill width + durum cls'ini günceller.
- * Elementleri yeniden yaratmaz → CSS width transition çalışır (kademeli doluş görünür).
+ * Mevcut .tray-batch-bar içindeki fill width + done cls'ini günceller.
+ * Elementi yeniden yaratmaz → CSS width transition çalışır (kademeli doluş görünür).
  */
-function updateSegmentBar(segBarEl, b) {
-  const files = b.files || [];
-  const segs = segBarEl.querySelectorAll('.tray-seg');
-  files.forEach((f, i) => {
-    const seg = segs[i];
-    if (!seg) return;
-    const st = (b.fileProgress && b.fileProgress.get(fileKey(f))) || null;
-    const total = f.size || (st && st.total) || 0;
-    const bytes = st ? st.bytes : 0;
-    const done = st ? st.done : false;
-    const pct = segPct(bytes, total, done);
-    const cls = done ? 'seg-done' : (bytes > 0 ? 'seg-active' : 'seg-empty');
-    // cls güncelle (önceki active/done/empty sınıfları temizle).
-    seg.classList.remove('seg-done', 'seg-active', 'seg-empty');
-    seg.classList.add(cls);
-    const fill = seg.querySelector('.tray-seg-fill');
-    if (fill) fill.style.width = (done ? 100 : pct) + '%';
-  });
+function updateBatchBar(barEl, b) {
+  const pct = getBatchPct(b);
+  const done = b.status === 'done';
+  barEl.classList.toggle('is-done', done);
+  const fill = barEl.querySelector('.tray-batch-bar-fill');
+  if (fill) fill.style.width = (done ? 100 : pct) + '%';
 }
 
 /**
@@ -1469,15 +1481,13 @@ function renderTrayEmpty() {
  * "3 MB / 112 MB" veya "1/3 dosya · 5 MB / 15 MB" formatında.
  */
 function formatTrayProgress(b) {
-  const total = b.files.reduce((a, f) => a + (f.size || 0), 0) ||
-                b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || 0), 0);
-  const completedBytes = b.completedFiles.reduce((a, f) => a + ((f.meta && f.meta.file_size) || f.file.size || 0), 0);
-  const remainingTotal = total - completedBytes;
-  const done = completedBytes + Math.round((b.progress || 0) / 100 * (isFinite(remainingTotal) ? remainingTotal : 0));
-  // Guard: total/done NaN (stub batch, eksik meta) → güvenli fallback.
+  // Tek doğruluk kaynağı: getBatchDoneBytes/getBatchTotalBytes. Bar ve yüzde de
+  // aynı değerleri okur → "11.6 / 11.6 · %2" desync'i olmaz.
+  const total = getBatchTotalBytes(b);
+  const done = getBatchDoneBytes(b);
   const safeTotal = isFinite(total) ? total : 0;
   const safeDone = isFinite(done) ? Math.min(done, safeTotal) : 0;
-  if (!safeTotal) return `${b.completedFiles.length}/${b.files.length}`;
+  if (!safeTotal) return `${(b.completedFiles || []).length}/${(b.files || []).length}`;
   // Hız + ETA: yalnızca aktif uploading durumunda ve startedAt doluyken.
   // Bitmiş/duraklatılmış batch'lerde hız/ETA anlamsız → sadece byte özeti.
   if (b.status === 'uploading' && b.startedAt) {
@@ -1511,9 +1521,17 @@ function trayStatusLabel(status, lang) {
   return (lang === 'en' ? en : tr)[status] || status;
 }
 
-/** Tray'i görünür yap (yeni batch başlatınca çağrılır). */
-function showTray() {
-  if (DOM.uploadTray) DOM.uploadTray.classList.remove('hidden');
+/** Tray'i görünür yap. opts.expand=true ise minimize'i de kaldır → yeni yükleme
+ *  başlayınca panel anında açılır (kullanıcı daha önce küçültmüş olsa bile).
+ *  Reload sonrası restore'da expand verilmez; tray minimize durumu kalıcı değil
+ *  (localStorage'a yazılmaz) → reload'da varsayılan expanded görünür. */
+function showTray(opts = {}) {
+  if (!DOM.uploadTray) return;
+  DOM.uploadTray.classList.remove('hidden');
+  if (opts.expand) {
+    DOM.uploadTray.classList.remove('minimized');
+    if (DOM.trayMinimize) DOM.trayMinimize.classList.toggle('is-minimized', false);
+  }
 }
 
 // Tray kontrolleri
